@@ -12,11 +12,11 @@ default: $(TARGET)
 all: default
 
 %.o: %.c $(HEADERS)
-     $(CC) $(CFLAGS) -c $< -o $@
+	 $(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJECTS)
-    $(CC) $(CFLAGS) $(OBJECTS) $(LIBS) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OBJECTS) $(LIBS) -o $@ $(LDFLAGS)
 
 clean:
-    -rm -f *.o
-    -rm -f $(TARGET)
+	-rm -f *.o
+	-rm -f $(TARGET)

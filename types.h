@@ -1,6 +1,10 @@
 #ifndef _LRCU_TYPES_H
 #define _LRCU_TYPES_H
 
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint16_t u16;

@@ -2,7 +2,6 @@
 #define _LRCU_SIMPLE_LIST_H
 
 /*
-
 	list API:
 
 	list_init
@@ -14,13 +13,17 @@
 					iterating by sizeof(*(p))
 
 */
+#include "types.h"
+#include <string.h>
 
-typedef {
+struct list;
+typedef struct list list_t;
+struct list{
 	list_t *next, *prev;
 	char data[0];
-} list_t;
+};
 
-typedef {
+typedef struct list_head {
 	list_t *head, *tail;
 } list_head_t;
 
