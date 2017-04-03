@@ -15,11 +15,14 @@
 
 /* XXX ifdef x86_64 */
 #define cpu_relax() asm volatile("pause\n": : :"memory")
+#define mb()    asm volatile("mfence":::"memory")
+#define rmb()   asm volatile("lfence":::"memory")
+#define wmb()   asm volatile("sfence" ::: "memory")
+
 
 #define barrier() asm volatile("": : :"memory")
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
-#define smp_mb() __sync_synchronize()
 #define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
 
 

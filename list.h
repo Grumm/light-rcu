@@ -14,6 +14,7 @@
 
 */
 #include "types.h"
+#include "atomics.h"
 #include <string.h>
 
 struct list;
@@ -40,9 +41,13 @@ static inline void list_insert(list_head_t *lh, list_t *e){
 		lh->head = e;
 		lh->tail = e;
 	} else { /* >=1 elem in list */
-		lh->tail->next = e;
-		e->prev = lh->tail;
+		list_t *t;
+
+		t = lh->tail;
 		lh->tail = e;
+		e->prev = t;
+		wmb();
+		t->next = e;
 	}
 }
 
@@ -60,16 +65,19 @@ static inline list_t *__list_add(list_head_t *lh, void *data, size_t size){
 	return e;
 }
 
-//#define list_del(lh, p) __list_del(lh, container_of((p), list_t, data))
+/* if you want to use this with lrcu, you should walk it only forward */
+//#define list_unlink_data(lh, p) list_unlink(lh, container_of((p), list_t, data))
 static inline void list_unlink(list_head_t *lh, list_t *e){
-	if(e->prev)
-		e->prev->next = e->next;
-	else /* we are first element */
-		lh->head = e->next;
 	if(e->next)
 		e->next->prev = e->prev;
 	else /* we are last element */
 		lh->tail = e->prev;
+
+	wmb();
+	if(e->prev)
+		e->prev->next = e->next;
+	else /* we are first element */
+		lh->head = e->next;
 
 	return;
 }
@@ -89,9 +97,9 @@ static inline void list_splice(list_head_t *lh, list_head_t *lt){
 }
 
 /* e - temporary storage; n - working element, could be free'd */
-#define list_for_each(e, n, lh) \
-			for ((n) = (e) = (lh)->head; \
-				((n) = (e)) && ((e) = (e)->next, true); \
+#define list_for_each(n, prev, lh) \
+			for ((n) = (prev) = (lh)->head; \
+				((n) = (prev)) && ((prev) = (prev)->next, true); \
 				)
 
 

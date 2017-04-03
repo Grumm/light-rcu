@@ -17,10 +17,13 @@ struct lrcu_handler{
 struct lrcu_namespace {
 	spinlock_t  write_lock;
 	u64 version;
+	spinlock_t  threads_lock;
 	list_head_t threads;
 	u8 id;
 	spinlock_t  list_lock;
 	list_head_t free_list, worker_list;
 };
+
+#define LRCU_GET_LNS(ti, ns) (&(ti)->lns[(ns)->id])
 
 #endif /* _LRCU_INTERNAL_H */

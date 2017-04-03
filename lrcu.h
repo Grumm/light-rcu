@@ -20,7 +20,7 @@ enum{
 	LRCU_NS_DEFAULT = 0,
 	LRCU_NS_MAX,
 };
-#define LRCU_WORKER_SLEEP_US	1000000
+#define LRCU_WORKER_SLEEP_US	1000
 
 /***********************************************************/
 
@@ -48,14 +48,11 @@ struct lrcu_thread_info{
 	struct lrcu_local_namespace lns[LRCU_NS_MAX];
 };
 
-#define LRCU_GET_LNS(ti, ns) (&(ti)->lns[(ns)->id])
-#define ACCESS_LRCU(p) ((p)->ptr)
-
 /***********************************************************/
 
 #define lrcu_write_lock() ({ \
 			struct lrcu_thread_info *__ti = LRCU_GET_TI(); \
-			lrcu_write_lock_ns(__ti->h->ns[LRCU_NS_DEFAULT]); \
+			lrcu_write_lock_ns(lrcu_ti_get_ns(__ti, LRCU_NS_DEFAULT)); \
 		})
 
 void lrcu_write_lock_ns(struct lrcu_namespace *ns);
@@ -68,7 +65,7 @@ void lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr);
 
 #define lrcu_write_unlock() ({ \
 			struct lrcu_thread_info *__ti = LRCU_GET_TI(); \
-			lrcu_write_unlock_ns(__ti->h->ns[LRCU_NS_DEFAULT]); \
+			lrcu_write_unlock_ns(lrcu_ti_get_ns(__ti, LRCU_NS_DEFAULT)); \
 		})
 
 void lrcu_write_unlock_ns(struct lrcu_namespace *ns);
@@ -79,7 +76,7 @@ void lrcu_write_unlock_ns(struct lrcu_namespace *ns);
 
 #define lrcu_read_lock_ns(x) ({ \
 			struct lrcu_thread_info *__ti = LRCU_GET_TI(); \
-			__lrcu_read_lock(__ti, __ti->h->ns[(x)]); \
+			__lrcu_read_lock(__ti, lrcu_ti_get_ns(__ti, (x))); \
 		})
 
 void __lrcu_read_lock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns);
@@ -94,7 +91,7 @@ void *lrcu_read_dereference_pointer(struct lrcu_ptr *ptr);
 
 #define lrcu_read_unlock_ns(x) ({ \
 			struct lrcu_thread_info *__ti = LRCU_GET_TI(); \
-			__lrcu_read_unlock(__ti, __ti->h->ns[(x)]); \
+			__lrcu_read_unlock(__ti, lrcu_ti_get_ns(__ti, (x))); \
 		})
 
 void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns);
@@ -104,7 +101,7 @@ void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns);
 #define lrcu_call(x, y) ({ \
 			struct lrcu_handler *__handler = LRCU_GET_HANDLER(); \
 			if(__handler != NULL) \
-				__lrcu_call(__handler->ns[(x)->ns_id], (x), (y)); \
+				__lrcu_call(lrcu_get_ns(__handler, (x)->ns_id), (x), (y)); \
 		})
 
 void __lrcu_call(struct lrcu_namespace *ns, 
@@ -113,8 +110,8 @@ void __lrcu_call(struct lrcu_namespace *ns,
 /***********************************************************/
 
 #define lrcu_init() ({ \
-			lrcu_ns_init(LRCU_NS_DEFAULT); \
 			__lrcu_init(); \
+			lrcu_ns_init(LRCU_NS_DEFAULT); \
 		})
 
 struct lrcu_handler *__lrcu_init(void);
@@ -161,6 +158,12 @@ void __lrcu_thread_deinit(struct lrcu_thread_info *ti);
 
 void __lrcu_ptr_init(struct lrcu_ptr *ptr, u8 ns_id, 
 							lrcu_destructor_t *deinit);
+
+/***********************************************************/
+
+struct lrcu_namespace *lrcu_ti_get_ns(struct lrcu_thread_info *ti, u8 id);
+
+struct lrcu_namespace *lrcu_get_ns(struct lrcu_handler *h, u8 id);
 
 /***********************************************************/
 

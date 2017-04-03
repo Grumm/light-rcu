@@ -59,6 +59,7 @@ void __lrcu_read_lock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
 	if(likely(LRCU_GET_LNS(ti, ns)->counter == 1))
 		LRCU_GET_LNS(ti, ns)->version = ns->version;
 		/* say we entered read section with this ns version */
+	wmb();
 	/* tell ns that grace period is in progress */
 }
 
@@ -113,11 +114,12 @@ static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
 		struct lrcu_local_namespace lns;
 		bool ready = false;
 
-		ti = (struct lrcu_thread_info *)e->data;
+		ti = *(struct lrcu_thread_info **)e->data;
 
 		lns = *LRCU_GET_LNS(ti, ns);
-		barrier();
-		if(lns.version != ptr->version || /* TODO what about when version wraps -1 ? */
+		rmb();
+		/*  We need to wait until we exit (ns->namespace or less) read locks versions */
+		if(lns.version > ptr->version || /* TODO what about when version wraps -1 ? */
 						lns.counter == 0){
 			/* it's time!!! */
 			ready = true;
@@ -257,12 +259,17 @@ struct lrcu_thread_info *__lrcu_thread_init(void){
 
 bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
 	struct lrcu_namespace *ns;
+	void *ret;
 
 	ns = ti->h->ns[ns_id];
 	if(ns == NULL)
 		return false;
 
-	return list_add(&ns->threads, ti) != NULL;
+	spin_lock(&ns->threads_lock);
+	ret = list_add(&ns->threads, ti);
+	spin_unlock(&ns->threads_lock);
+
+	return ret != NULL;
 }
 
 void __lrcu_thread_deinit(struct lrcu_thread_info *ti){
@@ -276,4 +283,12 @@ void __lrcu_ptr_init(struct lrcu_ptr *ptr, u8 ns_id,
 								lrcu_destructor_t *deinit){
 	ptr->ns_id = ns_id;
 	ptr->deinit = deinit;
+}
+
+struct lrcu_namespace *lrcu_ti_get_ns(struct lrcu_thread_info *ti, u8 id){
+	return ti->h->ns[id];
+}
+
+struct lrcu_namespace *lrcu_get_ns(struct lrcu_handler *h, u8 id){
+	return h->ns[id];
 }
