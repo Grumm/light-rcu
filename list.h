@@ -45,7 +45,7 @@ static inline void list_insert(list_head_t *lh, list_t *e){
 
 /* p - data to store in list */
 #define list_add(lh, p) __list_add(lh, &(p), sizeof(p))
-static inline void *__list_add(list_head_t *lh, void *data, size_t size){
+static inline list_t *__list_add(list_head_t *lh, void *data, size_t size){
 	list_t *e = malloc(sizeof(list_t) + size);
 	if(!e)
 		return NULL;

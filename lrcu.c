@@ -3,16 +3,23 @@
 	locks taken only on lrcu_ptr  
 */
 
+#include "list.h"
+#include "atomic.h"
+#include "lrcu.h"
+
+struct lrcu_handler *__lrcu_handler = NULL;
+__thread struct lrcu_thread_info *__lrcu_thread_info;
+
 /***********************************************************/
 
 /* can't be nested */
-void __lrcu_write_lock(struct lrcu_namespace *ns){
+void lrcu_write_lock_ns(struct lrcu_namespace *ns){
 	spin_lock(&ns->write_lock);
 	ptr->ns->version++;
 	barrier(); /* new ptr's should be seen only with new version */
 }
 
-void __lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr){
+void lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr){
 	struct lrcu_ptr old_ptr;
 
 	//ptr->ptr = NULL; 
@@ -23,6 +30,7 @@ void __lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr){
 	old_ptr = *ptr;
 	ptr->ptr = newptr;
 	barrier();
+	/* TODO how? */
 	lrcu_call(ptr->ns, &old_ptr, ptr->deinit);
 	/* add old_ptr to free_queue and wake up lrcu_worker thread */
 	/* 
@@ -32,7 +40,7 @@ void __lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr){
 		Need to change ns->version */
 }
 
-void __lrcu_write_unlock(struct lrcu_namespace *ns){
+void lrcu_write_unlock_ns(struct lrcu_namespace *ns){
 	spin_unlock(&ns->write_lock);
 }
 
@@ -99,7 +107,7 @@ static inline bool lrcu_worker_process_call(struct lrcu_namespace *ns,
 
 	/* make sure that each thread that uses ns, has 
 		local_namespace either bigger version, or zero counter */
-	list_for_each(e, next, ns->threads){
+	list_for_each(e, next, &ns->threads){
 		struct lrcu_local_namespace lns;
 		bool ready = false;
 
@@ -152,7 +160,7 @@ static inline void *lrcu_worker(void *arg){
 	}
 }
 
-struct lrcu_handler *lrcu_init(void){
+struct lrcu_handler *__lrcu_init(void){
 	struct lrcu_handler *h;
 	pthread_t worker_tid;
 
@@ -161,9 +169,11 @@ struct lrcu_handler *lrcu_init(void){
 		return NULL;
 
 	h->worker_run = true;
-	h->sleep_time = 1000000; //1 sec
+	h->sleep_time = LRCU_WORKER_SLEEP_US; //1 sec
 	if(pthread_create(&h->worker_tid, NULL, lrcu_worker, lrcu_worker, (void *)h))
 		goto out;
+
+	LRCU_SET_HANDLER(h);
 
 	return h;
 out:
@@ -171,16 +181,26 @@ out:
 	return NULL
 }
 
-void lrcu_deinit(struct lrcu_handler *h){
+void lrcu_deinit(void){
+	struct lrcu_handler *h = LRCU_GET_HANDLER();
+
+	if(h == NULL)
+		return;
+
 	h->worker_run = false;
 	pthread_join(&h->worker_tid);
+	LRCU_DEL_HANDLER(h);
 	/* TODO remove all ns */
 }
 
 /***********************************************************/
 
-struct lrcu_namespace *lrcu_ns_init(struct lrcu_handler *h, u8 id){
+struct lrcu_namespace *lrcu_ns_init(u8 id){
 	struct lrcu_namespace *ns = NULL;
+	struct lrcu_handler *h = LRCU_GET_HANDLER();
+
+	if(h == NULL)
+		return NULL;
 
 	spin_lock(&h->ns_lock);
 	if(h->ns[id])
@@ -198,16 +218,26 @@ out:
 	return ns;
 }
 
-void lrcu_ns_deinit(struct lrcu_handler *h, u8 id){
+void __lrcu_ns_deinit(u8 id){
+	struct lrcu_handler *h = LRCU_GET_HANDLER();
+
+	if(h == NULL)
+		return;
+
 	spin_lock(&h->ns_lock);
 	free(h->ns[id]);
 	h->ns[id] = NULL;
 	spin_unlock(&h->ns_lock);
+	/* TODO remove all threads */
 }
 
-struct lrcu_thread_info *lrcu_thread_init(struct lrcu_handler *h){
+struct lrcu_thread_info *__lrcu_thread_init(void){
 	struct lrcu_thread_info *ti = NULL;
 	size_t i;
+	struct lrcu_handler *h = LRCU_GET_HANDLER();
+
+	if(h == NULL)
+		return NULL;
 
 	ti = calloc(1, sizeof(struct lrcu_thread_info));
 	if(ti == NULL)
@@ -222,7 +252,18 @@ struct lrcu_thread_info *lrcu_thread_init(struct lrcu_handler *h){
 	return ti;
 }
 
-void lrcu_thread_deinit(struct lrcu_thread_info *ti){
+bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
+	struct lrcu_namespace *ns;
+
+	ns = ti->h->ns[ns_id];
+	if(ns == NULL)
+		return false;
+
+	return list_add(&ns->threads, ti) != NULL;
+}
+
+void __lrcu_thread_deinit(struct lrcu_thread_info *ti){
+	/* TODO remove from all namespaces */
 	LRCU_DEL_TI(ti);
 	free(ti);
 }
