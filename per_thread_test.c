@@ -92,7 +92,7 @@ void *writer(void *arg){
 
 		if(c > 10000)
 			op = 1;
-		if(counter > 10000000){
+		if(counter > 40000000){
 			if(c == 0){
 				sched_yield();
 				usleep(1000000);
@@ -108,7 +108,7 @@ void *writer(void *arg){
 				w.c = counter++;
 				lrcu_write_lock();
 				if(counter % LOGGING_PERIOD == 0)
-					LRCU_LOG2("contructor %"PRIu64"\n", counter / LOGGING_PERIOD);
+					LRCU_LOG2("contructor %"PRIu64" %"PRIu64" \n", c, counter / LOGGING_PERIOD);
 				c++;
 				list_add(list, w);
 				lrcu_write_unlock();
@@ -132,8 +132,8 @@ void *writer(void *arg){
 				lrcu_write_unlock();
 				break;
 		}
-		//if(c%100 == 0)
-			//LRCU_LOG3("writer %"PRIu64"\n", c);
+		//if(c%1000 == 0)
+		//	LRCU_LOG3("writer %"PRIu64"\n", c);
 		if(WRITE_TIMEOUT)
 			usleep(WRITE_TIMEOUT);
 	}
