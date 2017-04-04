@@ -70,13 +70,17 @@ void working_data_destructor(void *p){
 }
 
 void list_destructor(void *p){
+	list_t *e = p;
+	struct working_data *w = (struct lrcu_ptr *)&e->data[0];
+	if(w->c % LOGGING_PERIOD == 0)
+		LRCU_LOG("destructor2 %"PRIu64"\n", w->c/LOGGING_PERIOD);
 	//LRCU_LOG("destructor2 \n");
 	free(p);
 }
 
 void *writer(void *arg){
 	list_head_t *list = (list_head_t *)arg;
-	struct working_data *w;
+	struct working_data w;
 	u64 counter = 0;
 	list_t *e;
 	static u64 c = 0;
@@ -88,14 +92,20 @@ void *writer(void *arg){
 
 		if(c > 10000)
 			op = 1;
-		if(counter > 10000000)
-			continue;
+		if(counter > 10000000){
+			if(c == 0){
+				sched_yield();
+				usleep(1000000);
+				continue;
+			}
+			op = 1;
+		}
 
 		switch(op){
 			default:
 			case 0:
-				w = malloc(sizeof(struct working_data));
-				w->c = counter++;
+				//w = malloc(sizeof(struct working_data));
+				w.c = counter++;
 				lrcu_write_lock();
 				if(counter % LOGGING_PERIOD == 0)
 					LRCU_LOG2("contructor %"PRIu64"\n", counter / LOGGING_PERIOD);
@@ -111,11 +121,12 @@ void *writer(void *arg){
 				e = list->head;
 				if(e){
 					c--;
-					struct lrcu_ptr *eptr = *(struct lrcu_ptr **)&e->data[0];
+					struct working_data *w = (struct working_data *)&e->data[0];
 
 					list_unlink(list, e);
-					lrcu_call(eptr, working_data_destructor);
+					//lrcu_call(eptr, working_data_destructor);
 					lrcu_call(e, list_destructor);
+					//free(e);
 					//free(ptr);
 				}
 				lrcu_write_unlock();
