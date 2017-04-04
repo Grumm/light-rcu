@@ -101,20 +101,24 @@ void __lrcu_call(struct lrcu_namespace *ns,
 	spin_unlock(&ns->list_lock);
 	/* XXX wakeup thread. see lrcu_read_unlock */
 }
+#include <inttypes.h>
+#include <stdio.h>
 
 /* ptr->version contains last viable ns version */
 static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
 													struct lrcu_ptr *ptr){
 	struct lrcu_thread_info *ti;
 	list_t *e, *next;
+	bool ready;
 
 	/* make sure that each thread that uses ns, has 
 		local_namespace either bigger version, or zero counter */
 	list_for_each(e, next, &ns->threads){
 		struct lrcu_local_namespace lns;
-		bool ready = false;
 
-		ti = *(struct lrcu_thread_info **)e->data;
+		ready = false;
+
+		ti = *((struct lrcu_thread_info **)(void **)&e->data[0]);
 
 		lns = *LRCU_GET_LNS(ti, ns);
 		rmb();
@@ -123,11 +127,63 @@ static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
 						lns.counter == 0){
 			/* it's time!!! */
 			ready = true;
-		}
-		if(!ready)
+			timerclear(&LRCU_GET_LNS(ti, ns)->timeval);
+		}else {
+			struct timeval now, *lns_tv;
+			static const struct timeval timer = { .tv_sec = LRCU_HANG_TIMEOUT_S, .tv_usec = 0, };
+			struct timeval timer_expires;
+
+			lns_tv = &LRCU_GET_LNS(ti, ns)->timeval;
+			if(likely(timerisset(lns_tv))){
+				gettimeofday(&now, NULL);
+				timeradd(lns_tv, &timer, &timer_expires);
+				if(unlikely(!timercmp(&now, &timer_expires, <))){ /* !< is >= */
+					/* timer expired. thread sleeps too long in read-section */
+					//LRCU_GET_LNS(ti, ns)->version = ptr->version;
+					printf("error %"PRIu64" %"PRIu64" %"PRIu64" %d\n", 
+						ptr->version, ns->version, lns.version, lns.counter);
+					fflush(stdout);
+					//exit(1);
+					/* put thread in list of hanging threads and check them separately */
+					*LRCU_GET_HUNG_LNS(ti, ns) = lns;
+					spin_lock(&ns->threads_lock);//XXX do we need to take a lock?
+					list_unlink(&ns->threads, e);
+					list_insert(&ns->hung_threads, e);
+					spin_unlock(&ns->threads_lock);
+					timerclear(&LRCU_GET_LNS(ti, ns)->timeval);
+					continue;
+				}
+			} else{
+				gettimeofday(&LRCU_GET_LNS(ti, ns)->timeval, NULL);
+			}
 			return false;
+		}
 	}
-	return true;
+
+	ready = true;
+	list_for_each(e, next, &ns->hung_threads){
+		struct lrcu_local_namespace lns, hung_lns;
+
+		ti = *((struct lrcu_thread_info **)(void **)&e->data[0]);
+
+		hung_lns = *LRCU_GET_HUNG_LNS(ti, ns);
+		lns = *LRCU_GET_LNS(ti, ns);
+		rmb();
+		if(lns.version > hung_lns.version || lns.counter == 0){
+			printf("AAAAAAAAAAAAAAAND we are back\n");
+					fflush(stdout);
+			/* we have been changed after we hang */
+			spin_lock(&ns->threads_lock);//XXX do we need to take a lock?
+			list_unlink(&ns->hung_threads, e);
+			list_insert(&ns->threads, e);
+			spin_unlock(&ns->threads_lock);
+		}
+		/* everything that is between [hung_lns.version and ptr->version] cannot be freed */
+		if(lns.version <= ptr->version) /* check ability to free the pointer */
+			ready = false;
+	}
+
+	return ready;
 }
 
 static inline void *lrcu_worker(void *arg){
@@ -144,7 +200,6 @@ static inline void *lrcu_worker(void *arg){
 			if(!list_empty(&ns->free_list)){
 				spin_lock(&ns->list_lock);
 				list_splice(&ns->worker_list, &ns->free_list);
-				//list_init(&ns->free_list);
 				spin_unlock(&ns->list_lock);
 			}
 			if(!list_empty(&ns->worker_list)){

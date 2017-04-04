@@ -14,13 +14,15 @@
 	(global)lrcu_ptr's have their version. thread accesses
 */
 
+#include <sys/time.h>
 #include "types.h"
 
 enum{
 	LRCU_NS_DEFAULT = 0,
 	LRCU_NS_MAX,
 };
-#define LRCU_WORKER_SLEEP_US	1000
+#define LRCU_WORKER_SLEEP_US	10000
+#define LRCU_HANG_TIMEOUT_S		1
 
 /***********************************************************/
 
@@ -37,15 +39,17 @@ struct lrcu_ptr {
 };
 
 struct lrcu_local_namespace {
+	struct timeval timeval;
 	size_t id;
 	u64 version;
-	u8 counter; /* max nesting depth 255 */
+	i8 counter; /* max nesting depth 255 */
 };
 
 /* XXX make number of namespaces dynamic??? */
 struct lrcu_thread_info{
 	struct lrcu_handler *h;
 	struct lrcu_local_namespace lns[LRCU_NS_MAX];
+	struct lrcu_local_namespace hung_lns[LRCU_NS_MAX];
 };
 
 /***********************************************************/

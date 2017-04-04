@@ -11,14 +11,15 @@ struct working_data{
 	u64 c;
 };
 
-#if 0
+#define LOGGING_PERIOD 1000000
+#if 1
 #define LRCU_LOG(x, ...) printf((x), ##__VA_ARGS__)
 #define LRCU_LOG2(x, ...) printf((x), ##__VA_ARGS__)
 #define LRCU_LOG3(x, ...) printf((x), ##__VA_ARGS__)
 #else
 #define LRCU_LOG(x, ...) 
 #define LRCU_LOG2(x, ...) 
-#define LRCU_LOG3(x, ...) printf((x), ##__VA_ARGS__)
+#define LRCU_LOG3(x, ...)
 #endif
 
 #if 0
@@ -34,15 +35,23 @@ void *reader(void *arg){
 	struct working_data *w;
 	struct lrcu_ptr *ptr;
 	list_t *n, *next;
+	u64 reads = 0;
 
 	lrcu_thread_init();
 
 	while(1){
 		lrcu_read_lock();
 		list_for_each(n, next, list){
+			int r = rand() % 20000000;
+			if(r == 0){
+				printf("usleep--------------------\n");
+				fflush(stdout);
+				usleep(1200000);
+			}
 			ptr = (struct lrcu_ptr *)&n->data;
 			w = lrcu_read_dereference_pointer(ptr);
-			LRCU_LOG2("read %"PRIu64"\n", w->c);
+			if(++reads % LOGGING_PERIOD == 0)
+				LRCU_LOG2("read %"PRIu64"\n", reads / LOGGING_PERIOD);
 			fflush(stdout);
 		}
 		lrcu_read_unlock();
@@ -54,12 +63,13 @@ void *reader(void *arg){
 void working_data_destructor(void *p){
 	struct working_data *w = (struct working_data *)p;
 
-	LRCU_LOG("destructor %"PRIu64"\n", w->c);
+	if(w->c % LOGGING_PERIOD == 0)
+		LRCU_LOG("destructor %"PRIu64"\n", w->c/LOGGING_PERIOD);
 	free(w);
 }
 
 void list_destructor(void *p){
-	LRCU_LOG("destructor2 \n");
+	//LRCU_LOG("destructor2 \n");
 	free(p);
 }
 
@@ -86,7 +96,8 @@ void *writer(void *arg){
 				w->c = counter++;
 				ptr.ptr = w;
 				lrcu_write_lock();
-				LRCU_LOG2("contructor %"PRIu64"\n", w->c);
+				if(counter % LOGGING_PERIOD == 0)
+					LRCU_LOG2("contructor %"PRIu64"\n", counter / LOGGING_PERIOD);
 				c++;
 				list_add(list, ptr);
 				lrcu_write_unlock();
@@ -113,8 +124,8 @@ void *writer(void *arg){
 				lrcu_write_unlock();
 				break;
 		}
-		if(c%100 == 0)
-			LRCU_LOG3("writer %"PRIu64"\n", c);
+		//if(c%100 == 0)
+			//LRCU_LOG3("writer %"PRIu64"\n", c);
 		if(WRITE_TIMEOUT)
 			usleep(WRITE_TIMEOUT);
 	}

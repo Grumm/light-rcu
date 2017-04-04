@@ -79,6 +79,8 @@ static inline void list_unlink(list_head_t *lh, list_t *e){
 	else /* we are first element */
 		lh->head = e->next;
 
+	e->next = e->prev = NULL;
+
 	return;
 }
 

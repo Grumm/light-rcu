@@ -2,6 +2,7 @@
 #define _LRCU_INTERNAL_H
 
 #include <pthread.h>
+
 #include "types.h"
 #include "atomics.h"
 
@@ -19,11 +20,13 @@ struct lrcu_namespace {
 	u64 version;
 	spinlock_t  threads_lock;
 	list_head_t threads;
+	list_head_t hung_threads;
 	u8 id;
 	spinlock_t  list_lock;
 	list_head_t free_list, worker_list;
 };
 
 #define LRCU_GET_LNS(ti, ns) (&(ti)->lns[(ns)->id])
+#define LRCU_GET_HUNG_LNS(ti, ns) (&(ti)->hung_lns[(ns)->id])
 
 #endif /* _LRCU_INTERNAL_H */
