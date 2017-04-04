@@ -88,11 +88,12 @@ void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
 /***********************************************************/
 
 void __lrcu_call(struct lrcu_namespace *ns, 
-							struct lrcu_ptr *ptr, lrcu_destructor_t *destr){
-	struct lrcu_ptr local_ptr = *ptr;					
-
-	local_ptr.deinit = destr;
-	local_ptr.version = ns->version; /* synchronize() will be called on this version */
+							void *p, lrcu_destructor_t *destr){
+	struct lrcu_ptr local_ptr = {
+		.deinit = destr,
+		.ptr = p,
+		.version = ns->version, /* synchronize() will be called on this version */
+	};
 
 	spin_lock(&ns->list_lock);
 

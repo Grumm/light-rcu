@@ -102,14 +102,18 @@ void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns);
 
 /***********************************************************/
 
-#define lrcu_call(x, y) ({ \
+#define lrcu_call(x, y) __lrcu_call_ptr(LRCU_NS_DEFAULT, (x), (y));
+
+#define lrcu_call_ptr(x, y) __lrcu_call_ptr((x)->ns_id, (x), (y));
+
+#define __lrcu_call_ptr(ns_id, x, y) ({ \
 			struct lrcu_handler *__handler = LRCU_GET_HANDLER(); \
 			if(__handler != NULL) \
-				__lrcu_call(lrcu_get_ns(__handler, (x)->ns_id), (x), (y)); \
+				__lrcu_call(lrcu_get_ns(__handler, (ns_id)), (x), (y)); \
 		})
 
 void __lrcu_call(struct lrcu_namespace *ns, 
-							struct lrcu_ptr *ptr, lrcu_destructor_t *destr);
+							void *p, lrcu_destructor_t *destr);
 
 /***********************************************************/
 

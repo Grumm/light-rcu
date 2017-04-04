@@ -23,8 +23,8 @@ struct working_data{
 #endif
 
 #if 0
-#define READ_TIMEOUT 	10000
-#define WRITE_TIMEOUT 	10000
+#define READ_TIMEOUT 	100000
+#define WRITE_TIMEOUT 	1000000
 #else
 #define READ_TIMEOUT 	0
 #define WRITE_TIMEOUT 	0
@@ -42,8 +42,9 @@ void *reader(void *arg){
 	while(1){
 		lrcu_read_lock();
 		list_for_each(n, next, list){
-			int r = rand() % 20000000;
-			if(r == 0){
+			int r;
+			//r = rand() % 20000000;
+			if(0 && r == 0){
 				printf("usleep--------------------\n");
 				fflush(stdout);
 				usleep(1200000);
@@ -76,7 +77,6 @@ void list_destructor(void *p){
 void *writer(void *arg){
 	list_head_t *list = (list_head_t *)arg;
 	struct working_data *w;
-	struct lrcu_ptr ptr = { .deinit = working_data_destructor, };
 	u64 counter = 0;
 	list_t *e;
 	static u64 c = 0;
@@ -88,18 +88,19 @@ void *writer(void *arg){
 
 		if(c > 10000)
 			op = 1;
+		if(counter > 10000000)
+			continue;
 
 		switch(op){
 			default:
 			case 0:
 				w = malloc(sizeof(struct working_data));
 				w->c = counter++;
-				ptr.ptr = w;
 				lrcu_write_lock();
 				if(counter % LOGGING_PERIOD == 0)
 					LRCU_LOG2("contructor %"PRIu64"\n", counter / LOGGING_PERIOD);
 				c++;
-				list_add(list, ptr);
+				list_add(list, w);
 				lrcu_write_unlock();
 				break;
 			case 1:
@@ -110,15 +111,11 @@ void *writer(void *arg){
 				e = list->head;
 				if(e){
 					c--;
-					struct lrcu_ptr *eptr = (struct lrcu_ptr *)&e->data;
-					struct lrcu_ptr list_entry = {
-						.deinit = list_destructor,
-						.ptr = e,
-					};
+					struct lrcu_ptr *eptr = *(struct lrcu_ptr **)&e->data[0];
 
 					list_unlink(list, e);
-					lrcu_call(eptr, eptr->deinit);
-					lrcu_call(&list_entry, list_entry.deinit);
+					lrcu_call(eptr, working_data_destructor);
+					lrcu_call(e, list_destructor);
 					//free(ptr);
 				}
 				lrcu_write_unlock();

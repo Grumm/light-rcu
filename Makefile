@@ -3,8 +3,8 @@ OBJECTS = $(patsubst %.c, %.o, $(wildcard *.c))
 HEADERS = $(wildcard *.h)
 
 CC = gcc
-CFLAGS += -O3 -Wall -Wextra --std=gnu99
-LDFLAGS += -flto
+CFLAGS += -g -Wall -Wextra --std=gnu99
+LDFLAGS += #-flto
 LIBS += -lpthread
 TARGET = test1
 
