@@ -105,44 +105,72 @@ void __lrcu_call(struct lrcu_namespace *ns,
 #include <inttypes.h>
 #include <stdio.h>
 
+/* TODO what about when version wraps -1 ? */
+
 /* ptr->version contains last viable ns version */
-static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
-													struct lrcu_ptr *ptr){
+static inline u64 __lrcu_synchronized(struct lrcu_namespace *ns){
 	struct lrcu_thread_info *ti;
 	list_t *e, *next;
-	bool ready;
+	u64 min_version = ns->version + 1; /* +1 used to handle special case 2 \|/ */
 
 	/* make sure that each thread that uses ns, has 
 		local_namespace either bigger version, or zero counter */
 	list_for_each(e, next, &ns->threads){
 		struct lrcu_local_namespace lns;
 
-		ready = false;
-
 		ti = *((struct lrcu_thread_info **)(void **)&e->data[0]);
 
 		lns = *LRCU_GET_LNS(ti, ns);
 		rmb();
-		/*  We need to wait until we exit (ns->namespace or less) read locks versions */
-		if(lns.version > ptr->version || /* TODO what about when version wraps -1 ? */
-						lns.counter == 0){
-			/* it's time!!! */
-			ready = true;
-			timerclear(&LRCU_GET_LNS(ti, ns)->timeval);
-		}else {
+		if(lns.counter != 0){
+			if(lns.version < min_version){ /* what if ==? can we free it? */
+				min_version = lns.version;
+			}
+			/*
+				Corner cases.
+				Here's the sequence 1:
+					write_lock(v = 1)
+					assign_ptr
+					lrcu_call(p, v = 1)
+											read_lock(v = 1) 
+											deref_ptr(p)						 <---- this cannot happen in correct code(barriers etc.)
+																worker_thread(p) <---- we here
+					write_unlock
+											...
+											read_unlock
+				**************************************************************
+				Here's the sequence 2:
+					write_lock(v = 1)
+											read_lock(v = 1)
+											deref_ptr(p)
+					assign_ptr
+					lrcu_call(p, v = 1)
+																worker_thread(p, v = 1) <---- we here. 
+																						1 == 1 => we cannot free it
+																						we should wait until counter == 0
+					write_unlock
+											...
+											read_unlock
+			*/
 			struct timeval now, *lns_tv;
 			static const struct timeval timer = { .tv_sec = LRCU_HANG_TIMEOUT_S, .tv_usec = 0, };
 			struct timeval timer_expires;
 
 			lns_tv = &LRCU_GET_LNS(ti, ns)->timeval;
+
 			if(likely(timerisset(lns_tv))){
 				gettimeofday(&now, NULL);
 				timeradd(lns_tv, &timer, &timer_expires);
-				if(unlikely(!timercmp(&now, &timer_expires, <))){ /* !< is >= */
+
+				if(lns.version != LRCU_GET_HUNG_LNS(ti, ns)->version){ /* we actually not hang! */
+					/* update timer and version */
+					gettimeofday(&LRCU_GET_LNS(ti, ns)->timeval, NULL);
+					*LRCU_GET_HUNG_LNS(ti, ns) = lns;
+				}else if(unlikely(!timercmp(&now, &timer_expires, <))){ /* !< is >= */
 					/* timer expired. thread sleeps too long in read-section */
 					//LRCU_GET_LNS(ti, ns)->version = ptr->version;
-					printf("error %"PRIu64" %"PRIu64" %"PRIu64" %d\n", 
-						ptr->version, ns->version, lns.version, lns.counter);
+					printf("error %"PRIu64" %"PRIu64" %d\n", 
+						ns->version, lns.version, lns.counter);
 					fflush(stdout);
 					//exit(1);
 					/* put thread in list of hanging threads and check them separately */
@@ -154,14 +182,15 @@ static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
 					timerclear(&LRCU_GET_LNS(ti, ns)->timeval);
 					continue;
 				}
-			} else{
+			} else{ /* we may be hang right here */
 				gettimeofday(&LRCU_GET_LNS(ti, ns)->timeval, NULL);
+				*LRCU_GET_HUNG_LNS(ti, ns) = lns;
 			}
-			return false;
+		}else{ /* counter == 0 */
+			timerclear(&LRCU_GET_LNS(ti, ns)->timeval);
 		}
 	}
 
-	ready = true;
 	list_for_each(e, next, &ns->hung_threads){
 		struct lrcu_local_namespace lns, hung_lns;
 
@@ -180,11 +209,11 @@ static inline bool __lrcu_synchronized(struct lrcu_namespace *ns,
 			spin_unlock(&ns->threads_lock);
 		}
 		/* everything that is between [hung_lns.version and ptr->version] cannot be freed */
-		if(lns.version <= ptr->version) /* check ability to free the pointer */
-			ready = false;
+		if(lns.version <= min_version) /* check ability to free the pointer */
+			min_version = lns.version;
 	}
 
-	return ready;
+	return min_version;
 }
 
 static inline void *lrcu_worker(void *arg){
@@ -206,10 +235,12 @@ static inline void *lrcu_worker(void *arg){
 			if(!list_empty(&ns->worker_list)){
 				struct lrcu_ptr *ptr;
 				list_t *n, *next;
+				u64 sync_version = __lrcu_synchronized(ns);
+
 				list_for_each(n, next, &ns->worker_list){
 					ptr = (struct lrcu_ptr *)n->data;
 					/* do actual job */
-					if(__lrcu_synchronized(ns, ptr)){
+					if(sync_version > ptr->version){
 						ptr->deinit(ptr->ptr);
 						list_unlink(&ns->worker_list, n);
 						free(n);

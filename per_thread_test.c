@@ -33,7 +33,6 @@ struct working_data{
 void *reader(void *arg){
 	volatile list_head_t *list = (list_head_t *)arg;
 	struct working_data *w;
-	struct lrcu_ptr *ptr;
 	list_t *n, *next;
 	u64 reads = 0;
 
@@ -43,14 +42,14 @@ void *reader(void *arg){
 		lrcu_read_lock();
 		list_for_each(n, next, list){
 			int r;
-			//r = rand() % 20000000;
-			if(0 && r == 0){
+			r = rand() % 200000;
+			if(1 && r == 0){
 				printf("usleep--------------------\n");
 				fflush(stdout);
 				usleep(1200000);
 			}
-			ptr = (struct lrcu_ptr *)&n->data;
-			w = lrcu_read_dereference_pointer(ptr);
+			w = (struct working_data *)&n->data;
+			(void)w;
 			if(++reads % LOGGING_PERIOD == 0)
 				LRCU_LOG2("read %"PRIu64"\n", reads / LOGGING_PERIOD);
 			fflush(stdout);
@@ -71,7 +70,7 @@ void working_data_destructor(void *p){
 
 void list_destructor(void *p){
 	list_t *e = p;
-	struct working_data *w = (struct lrcu_ptr *)&e->data[0];
+	struct working_data *w = (struct working_data *)&e->data[0];
 	if(w->c % LOGGING_PERIOD == 0)
 		LRCU_LOG("destructor2 %"PRIu64"\n", w->c/LOGGING_PERIOD);
 	//LRCU_LOG("destructor2 \n");
@@ -89,10 +88,18 @@ void *writer(void *arg){
 
 	while(1){
 		int op = rand() % 2;
+		int r;
+
+		r = rand() % 200000;
+		if(1 && r == 0){
+			printf("usleep--------------------\n");
+			fflush(stdout);
+			usleep(1200000);
+		}
 
 		if(c > 10000)
 			op = 1;
-		if(counter > 40000000){
+		if(counter > 4000000){
 			if(c == 0){
 				sched_yield();
 				usleep(1000000);
@@ -123,6 +130,7 @@ void *writer(void *arg){
 					c--;
 					struct working_data *w = (struct working_data *)&e->data[0];
 
+					(void)w;
 					list_unlink(list, e);
 					//lrcu_call(eptr, working_data_destructor);
 					lrcu_call(e, list_destructor);
