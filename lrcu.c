@@ -12,7 +12,7 @@
 #include "lrcu_internal.h"
 
 struct lrcu_handler *__lrcu_handler = NULL;
-__thread struct lrcu_thread_info *__lrcu_thread_info;
+__thread struct lrcu_thread_info *__lrcu_thread_info = NULL;
 
 /***********************************************************/
 
@@ -51,6 +51,8 @@ void lrcu_write_unlock_ns(struct lrcu_namespace *ns){
 /***********************************************************/
 
 void __lrcu_read_lock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
+	if(ti == NULL)
+		return;
 	
 	LRCU_GET_LNS(ti, ns)->counter++; /* can be nested! */
 	barrier(); /* make sure counter changed first, and only after 
@@ -74,6 +76,8 @@ void *lrcu_read_dereference_pointer(struct lrcu_ptr *ptr){
 }
 
 void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
+	if(ti == NULL)
+		return;
 	if(--LRCU_GET_LNS(ti, ns)->counter == 0){
 		if(LRCU_GET_LNS(ti, ns)->version != ns->version){
 			/* XXX notify thread that called synchronize() that we are done.
@@ -117,8 +121,9 @@ static inline u64 __lrcu_synchronized(struct lrcu_namespace *ns){
 		local_namespace either bigger version, or zero counter */
 	list_for_each(e, next, &ns->threads){
 		struct lrcu_local_namespace lns;
+		char *cp = e->data;
 
-		ti = *((struct lrcu_thread_info **)(void **)&e->data[0]);
+		ti = *((struct lrcu_thread_info **)cp);
 
 		lns = *LRCU_GET_LNS(ti, ns);
 		rmb();
@@ -193,8 +198,9 @@ static inline u64 __lrcu_synchronized(struct lrcu_namespace *ns){
 
 	list_for_each(e, next, &ns->hung_threads){
 		struct lrcu_local_namespace lns, hung_lns;
+		char *cp = e->data;
 
-		ti = *((struct lrcu_thread_info **)(void **)&e->data[0]);
+		ti = *((struct lrcu_thread_info **)cp);
 
 		hung_lns = *LRCU_GET_HUNG_LNS(ti, ns);
 		lns = *LRCU_GET_LNS(ti, ns);
@@ -218,6 +224,7 @@ static inline u64 __lrcu_synchronized(struct lrcu_namespace *ns){
 
 static inline void *lrcu_worker(void *arg){
 	struct lrcu_handler *h = (struct lrcu_handler *)arg;
+	lrcu_thread_init(); /* we want rcu-locking in destructors */
 
 	while(h->worker_run){
 		size_t i;
@@ -348,6 +355,8 @@ bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
 	struct lrcu_namespace *ns;
 	void *ret;
 
+	if(ti == NULL || ti->h == NULL)
+		return false;
 	ns = ti->h->ns[ns_id];
 	if(ns == NULL)
 		return false;
@@ -361,6 +370,8 @@ bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
 
 void __lrcu_thread_deinit(struct lrcu_thread_info *ti){
 	/* TODO remove from all namespaces */
+	if(ti == NULL)
+		return;
 	LRCU_DEL_TI(ti);
 	free(ti);
 }
@@ -373,6 +384,8 @@ void __lrcu_ptr_init(struct lrcu_ptr *ptr, u8 ns_id,
 }
 
 struct lrcu_namespace *lrcu_ti_get_ns(struct lrcu_thread_info *ti, u8 id){
+	if(ti == NULL || ti->h == NULL)
+		return NULL;
 	return ti->h->ns[id];
 }
 
