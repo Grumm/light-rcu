@@ -1,3 +1,8 @@
+/* 
+	https://github.com/grumm/light-rcu
+	Andrei Dubasov - andrew.dubasov@gmail.com
+*/
+
 #ifndef _LRCU_API_H
 #define _LRCU_API_H
 /*

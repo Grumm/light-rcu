@@ -368,6 +368,7 @@ static inline void *lrcu_worker(void *arg){
         }
         usleep(h->worker_timeout);
     }
+    lrcu_thread_deinit();
     h->worker_state = LRCU_WORKER_DONE;
     return NULL;
 }
@@ -499,7 +500,7 @@ void lrcu_deinit(void){
     if(h == NULL)
         return;
 
-    h->worker_state = false;
+    h->worker_state = LRCU_WORKER_STOP;
     pthread_join(h->worker_tid, NULL);
     LRCU_DEL_HANDLER(h);
     /* TODO remove all ns */
@@ -533,6 +534,7 @@ struct lrcu_namespace *lrcu_ns_init(u8 id){
     /* no need to take a lock */
     if (list_add(&ns->threads, h->worker_ti) == NULL){
         free(ns);
+        ns = NULL;
         goto out;
     }
     /* first allocate and init, then assign */
