@@ -38,46 +38,46 @@ typedef union ticketlock ticketlock;
 
 union ticketlock
 {
-	u32 u;
-	struct
-	{
-		u16 ticket;
-		u16 users;
-	} s;
+    u32 u;
+    struct
+    {
+        u16 ticket;
+        u16 users;
+    } s;
 };
 
 static inline void ticket_lock(ticketlock *t)
 {
-	unsigned short me = atomic_xadd(&t->s.users, 1);
-	
-	while (t->s.ticket != me)
-		cpu_relax();
+    unsigned short me = atomic_xadd(&t->s.users, 1);
+    
+    while (t->s.ticket != me)
+        cpu_relax();
 }
 
 static inline void ticket_unlock(ticketlock *t)
 {
-	barrier();
-	t->s.ticket++;
+    barrier();
+    t->s.ticket++;
 }
 
 static inline int ticket_trylock(ticketlock *t)
 {
-	unsigned short me = t->s.users;
-	unsigned short menew = me + 1;
-	unsigned cmp = ((unsigned) me << 16) + me;
-	unsigned cmpnew = ((unsigned) menew << 16) + me;
+    unsigned short me = t->s.users;
+    unsigned short menew = me + 1;
+    unsigned cmp = ((unsigned) me << 16) + me;
+    unsigned cmpnew = ((unsigned) menew << 16) + me;
 
-	if (cmpxchg(&t->u, cmp, cmpnew) == cmp)
-		return 0;
-	
-	return 1; // Busy
+    if (cmpxchg(&t->u, cmp, cmpnew) == cmp)
+        return 0;
+    
+    return 1; // Busy
 }
 
 static inline int ticket_lockable(ticketlock *t)
 {
-	ticketlock u = *t;
-	barrier();
-	return (u.s.ticket == u.s.users);
+    ticketlock u = *t;
+    barrier();
+    return (u.s.ticket == u.s.users);
 }
 
 #endif
