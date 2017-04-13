@@ -102,15 +102,12 @@ void lrcu_read_unlock_ns(u8 ns_id);
 
 /***********************************************************/
 
-#define lrcu_call(x, y) __lrcu_call_ptr(LRCU_NS_DEFAULT, (x), (y));
+#define lrcu_call(x, y) __lrcu_call_ns(LRCU_NS_DEFAULT, (x), (y));
 
 /* x - lrcu_ptr */
-#define lrcu_call_ptr(x) __lrcu_call_ptr((x)->ns_id, (x)->ptr, (x)->deinit);
+#define lrcu_call_ptr(x) __lrcu_call_ns((x)->ns_id, (x)->ptr, (x)->deinit);
 
-void __lrcu_call_ptr(u8 ns_id, void *p, lrcu_destructor_t *destr);
-
-void __lrcu_call(struct lrcu_namespace *ns, 
-                            void *p, lrcu_destructor_t *destr);
+void __lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr);
 
 /***********************************************************/
 
@@ -140,6 +137,7 @@ void lrcu_ns_deinit(u8 id);
 
 /***********************************************************/
 
+/* same as __X, but also set thread to deafult ns */
 struct lrcu_thread_info *lrcu_thread_init(void);
 
 struct lrcu_thread_info *__lrcu_thread_init(void);
@@ -148,13 +146,11 @@ struct lrcu_thread_info *__lrcu_thread_init(void);
 
 bool lrcu_thread_set_ns(u8 ns_id);
 
-bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id);
+bool lrcu_thread_del_ns(u8 ns_id);
 
 /***********************************************************/
 
 void lrcu_thread_deinit(void);
-
-void __lrcu_thread_deinit(struct lrcu_thread_info *ti);
 
 /***********************************************************/
 
@@ -163,12 +159,6 @@ void __lrcu_thread_deinit(struct lrcu_thread_info *ti);
 
 void __lrcu_ptr_init(struct lrcu_ptr *ptr, u8 ns_id, 
                             lrcu_destructor_t *deinit);
-
-/***********************************************************/
-
-struct lrcu_namespace *lrcu_ti_get_ns(struct lrcu_thread_info *ti, u8 id);
-
-struct lrcu_namespace *lrcu_get_ns(struct lrcu_handler *h, u8 id);
 
 /***********************************************************/
 

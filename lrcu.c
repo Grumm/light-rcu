@@ -34,6 +34,7 @@ void lrcu_write_lock_ns(u8 ns_id){
     __lrcu_write_lock(ti->h->ns[ns_id]);
 }
 
+/* TODO fix */
 void lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr){
     struct lrcu_ptr old_ptr;
 
@@ -138,18 +139,7 @@ void lrcu_read_unlock_ns(u8 ns_id){
 
 /***********************************************************/
 
-void __lrcu_call_ptr(u8 ns_id, void *p, lrcu_destructor_t *destr){
-    struct lrcu_handler *h = LRCU_GET_HANDLER();
-
-    if(unlikely(h == NULL)){
-        LRCU_BUG();
-        destr(p);
-    }else{
-        __lrcu_call(h->ns[ns_id], p, destr);
-    }
-}
-
-void __lrcu_call(struct lrcu_namespace *ns, 
+static inline void __lrcu_call(struct lrcu_namespace *ns, 
                             void *p, lrcu_destructor_t *destr){
     struct lrcu_ptr local_ptr = {
         .deinit = destr,
@@ -170,6 +160,17 @@ void __lrcu_call(struct lrcu_namespace *ns,
     list_add(&ns->free_list, local_ptr);
     spin_unlock(&ns->list_lock);
     /* XXX wakeup thread. see lrcu_read_unlock */
+}
+
+void __lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr){
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+
+    if(unlikely(h == NULL)){
+        LRCU_BUG();
+        destr(p);
+    }else{
+        __lrcu_call(h->ns[ns_id], p, destr);
+    }
 }
 
 /* what about when version wraps -1? at least after 143 years on 4Ghz CPU in ticks :) */
@@ -548,9 +549,27 @@ out:
 
 void lrcu_ns_deinit(u8 id){
     struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
 
     if(h == NULL)
         return;
+
+    ns = h->ns[id];
+    if(ns == NULL)
+        return;
+
+    /* raise callback in this NS? */
+    /*
+        In callback we zero out ns[id] pointer.
+        make sure every access to zero ns pointer leads to ??? not BUG?
+        schedule next callback???
+    */
+    /*
+        do we rally need ns_lock???
+        set ns ptr to zero, then synchronize? but how worker would be able
+        to process it??
+        could add flag to ns, or 
+    */
 
     spin_lock(&h->ns_lock);
     h->ns[id] = NULL;
@@ -567,7 +586,7 @@ struct lrcu_thread_info *lrcu_thread_init(void){
         return NULL;
 
     if(!lrcu_thread_set_ns(LRCU_NS_DEFAULT)){
-        __lrcu_thread_deinit(ti);
+        lrcu_thread_deinit();
         return NULL;
     }
 
@@ -597,20 +616,11 @@ struct lrcu_thread_info *__lrcu_thread_init(void){
 
 bool lrcu_thread_set_ns(u8 ns_id){
     struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    if(ti == NULL){
-        //LRCU_BUG();
-        /* control code does not need BUG() since it returns error code */
-        return false;
-    }
-
-    return __lrcu_thread_set_ns(ti, ns_id);
-}
-
-bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
     struct lrcu_namespace *ns;
     void *ret;
 
+    //LRCU_BUG();
+    /* control code does not need BUG() since it returns error code */
     if(ti == NULL || ti->h == NULL)
         return false;
 
@@ -630,18 +640,92 @@ bool __lrcu_thread_set_ns(struct lrcu_thread_info *ti, u8 ns_id){
     return ret != NULL;
 }
 
-void lrcu_thread_deinit(void){
-    /* TODO */
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-    __lrcu_thread_deinit(ti);
+/* assume ns lock taken and ti and ti->h non-null */
+static bool thread_remove_from_ns(struct lrcu_thread_info *ti, u8 ns_id){
+    struct lrcu_namespace *ns = ti->h->ns[ns_id];
+    list_t *e, *next;
+    int found = false;
+
+    if(unlikely(ns == NULL)){
+        LRCU_BUG();
+        return false;
+    }
+
+    spin_lock(&ns->threads_lock); /* locking in spinlock. careful of deadlock */
+    list_for_each(e, next, &ns->threads){
+        char *cp = e->data; /* hack with strict aliasing */
+        struct lrcu_thread_info *nti = *((struct lrcu_thread_info **)cp);
+
+        if(nti == ti){
+            list_unlink(&ns->threads, e);
+            found = true;
+            break;
+        }
+    }
+    spin_unlock(&ns->threads_lock);
+    if(!found){
+        /* failed to set thread's ns, then exited thread. */
+    }
+    return found;
 }
 
-void __lrcu_thread_deinit(struct lrcu_thread_info *ti){
-    /* TODO remove from all namespaces */
+bool lrcu_thread_del_ns(u8 ns_id){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    bool ret;
+
+    //LRCU_BUG();
+    /* control code does not need BUG() since it returns error code */
+    if(ti == NULL || ti->h == NULL)
+        return false;
+
+    spin_lock(&ti->h->ns_lock);
+    ret = thread_remove_from_ns(ti, ns_id);
+    spin_unlock(&ti->h->ns_lock);
+
+    return ret;
+}
+
+static void thread_destructor_callback(struct lrcu_thread_info *ti){
+    struct lrcu_handler *h = ti->h;
+    int found = false;
+    int i;
+
+    if(unlikely(ti == NULL || h == NULL)){
+        LRCU_BUG();
+        return;
+    }
+
+    spin_lock(&h->ns_lock);
+    for(i = 0; i < LRCU_NS_MAX; i++){
+        found = found || thread_remove_from_ns(ti, i);
+    }
+    spin_unlock(&h->ns_lock);
+    if(!found){
+        /* failed to set thread's ns, then exited thread. */
+    }
+    free(ti);
+}
+
+#if 0
+void lrcu_thread_deinit(void){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
     if(ti == NULL)
         return;
+
+    /* remove from all namespaces */
+    __lrcu_call_ns(LRCU_NS_DEFAULT, (void *)ti, (lrcu_destructor_t *)thread_destructor_callback);
     LRCU_DEL_TI(ti);
-    free(ti);
+    /* wait for it to process, since TLS gets deleted with the thread */
+    lrcu_barrier_ns(LRCU_NS_DEFAULT);
+}
+#endif
+
+void lrcu_thread_deinit(void){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    if(ti == NULL)
+        return;
+    thread_destructor_callback(ti);
+    LRCU_DEL_TI(ti);
 }
 
 /* already allocated ptr */
