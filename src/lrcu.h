@@ -18,30 +18,11 @@
     each thread has to have local version - which section thread in
     (global)lrcu_ptr's have their version. thread accesses
 */
-
-#include <sys/time.h>
+#include "defines.h"
 #include "types.h"
 
-enum{
-    LRCU_NS_DEFAULT = 0,
-    LRCU_NS_MAX,
-};
-#define LRCU_WORKER_SLEEP_US    1000000
-#define LRCU_NS_SYNC_SLEEP_US   10000
-#define LRCU_HANG_TIMEOUT_S     1
 
 /***********************************************************/
-
-/* user can redefine this */
-#ifndef LRCU_BUG
-#include <stdlib.h>
-#include <stdio.h>
-#include <libgen.h>
-#define LRCU_BUG()  do{ \
-        printf("LRCU BUG %s(%d):%s\n", basename(__FILE__), __LINE__, __FUNCTION__); \
-        exit(1); \
-    }while(0)
-#endif
 
 typedef void (lrcu_destructor_t)(void *);
 struct lrcu_namespace;
@@ -50,13 +31,13 @@ struct lrcu_handler;
 struct lrcu_ptr {
     void *ptr; /* actual data behind pointer */
     lrcu_destructor_t *deinit;
+    /* what about when version wraps -1? 
+        at least after 143 years on 4Ghz CPU in ticks :) */
     u64 version;
     u8 ns_id;
 };
 
 struct lrcu_local_namespace {
-    struct timeval timeval;
-    size_t id;
     u64 version;
     i32 counter; /* max nesting depth 2^32 */
 };
@@ -64,62 +45,90 @@ struct lrcu_local_namespace {
 /* XXX make number of namespaces dynamic??? */
 struct lrcu_thread_info{
     struct lrcu_handler *h;
+    struct timeval timeval[LRCU_NS_MAX];
     struct lrcu_local_namespace lns[LRCU_NS_MAX];
     struct lrcu_local_namespace hung_lns[LRCU_NS_MAX];
 };
 
 /***********************************************************/
 
-#define lrcu_write_lock() lrcu_write_lock_ns(LRCU_NS_DEFAULT)
+#define lrcu_write_barrier() lrcu_write_barrier_ns(LRCU_NS_DEFAULT)
 
-void lrcu_write_lock_ns(u8 ns_id);
+void lrcu_write_barrier_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_write_barrier);
 
 /***********************************************************/
 
-void lrcu_assign_pointer(struct lrcu_ptr *ptr, void *newptr);
+#define lrcu_write_lock() lrcu_write_lock_ns(LRCU_NS_DEFAULT)
+
+void lrcu_write_lock_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_write_lock_ns);
+
+/***********************************************************/
+
+#define lrcu_assign_pointer(p, v) __lrcu_assign_pointer(&(p), (v))
+
+void __lrcu_assign_pointer(void **pp, void *newptr);
+LRCU_EXPORT_SYMBOL(__lrcu_assign_pointer);
+
+void lrcu_assign_ptr(struct lrcu_ptr *ptr, void *newptr,
+                        u8 ns_id, lrcu_destructor_t *callback);
+LRCU_EXPORT_SYMBOL(lrcu_assign_ptr);
 
 /***********************************************************/
 
 #define lrcu_write_unlock() lrcu_write_unlock_ns(LRCU_NS_DEFAULT)
 
 void lrcu_write_unlock_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_write_unlock_ns);
 
 /***********************************************************/
 
 #define lrcu_read_lock() lrcu_read_lock_ns(LRCU_NS_DEFAULT)
 
 void lrcu_read_lock_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_read_lock_ns);
 
 /***********************************************************/
 
-void *lrcu_read_dereference_pointer(struct lrcu_ptr *ptr);
+#define lrcu_dereference_pointer(p) __lrcu_dereference_pointer(&(p))
+
+void *__lrcu_dereference_pointer(void **p);
+LRCU_EXPORT_SYMBOL(__lrcu_dereference_pointer);
+
+void *lrcu_dereference_ptr(struct lrcu_ptr *ptr);
+LRCU_EXPORT_SYMBOL(lrcu_dereference_ptr);
 
 /***********************************************************/
 
 #define lrcu_read_unlock() lrcu_read_unlock_ns(LRCU_NS_DEFAULT)
 
 void lrcu_read_unlock_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_read_unlock_ns);
 
 /***********************************************************/
 
-#define lrcu_call(x, y) __lrcu_call_ns(LRCU_NS_DEFAULT, (x), (y));
+#define lrcu_call(x, y) lrcu_call_ns(LRCU_NS_DEFAULT, (x), (y))
 
 /* x - lrcu_ptr */
-#define lrcu_call_ptr(x) __lrcu_call_ns((x)->ns_id, (x)->ptr, (x)->deinit);
+#define lrcu_call_ptr(x) lrcu_call_ns((x)->ns_id, (x)->ptr, (x)->deinit)
 
-void __lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr);
+void lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr);
+LRCU_EXPORT_SYMBOL(lrcu_call_ns);
 
 /***********************************************************/
 
 #define lrcu_synchronize() lrcu_synchronize_ns(LRCU_NS_DEFAULT)
 
 void lrcu_synchronize_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_synchronize_ns);
 
 /***********************************************************/
 
 #define lrcu_barrier() lrcu_synchronize_ns(LRCU_NS_DEFAULT)
 
 void lrcu_barrier_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(ns_id);
 
 /***********************************************************/
 
@@ -128,29 +137,39 @@ struct lrcu_handler *lrcu_init(void);
 struct lrcu_handler *__lrcu_init(void);
 
 void lrcu_deinit(void);
+LRCU_EXPORT_SYMBOL(lrcu_deinit);
 
 /***********************************************************/
 
 struct lrcu_namespace *lrcu_ns_init(u8 id);
 
 void lrcu_ns_deinit(u8 id);
+LRCU_EXPORT_SYMBOL(lrcu_ns_deinit);
+
+void lrcu_ns_deinit_safe(u8 id);
+LRCU_EXPORT_SYMBOL(lrcu_ns_deinit_safe);
 
 /***********************************************************/
 
 /* same as __X, but also set thread to deafult ns */
 struct lrcu_thread_info *lrcu_thread_init(void);
+LRCU_EXPORT_SYMBOL(lrcu_thread_init);
 
 struct lrcu_thread_info *__lrcu_thread_init(void);
+LRCU_EXPORT_SYMBOL(__lrcu_thread_init);
 
 /***********************************************************/
 
 bool lrcu_thread_set_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_thread_set_ns);
 
 bool lrcu_thread_del_ns(u8 ns_id);
+LRCU_EXPORT_SYMBOL(lrcu_thread_del_ns);
 
 /***********************************************************/
 
 void lrcu_thread_deinit(void);
+LRCU_EXPORT_SYMBOL(lrcu_thread_deinit);
 
 /***********************************************************/
 
@@ -159,10 +178,13 @@ void lrcu_thread_deinit(void);
 
 void __lrcu_ptr_init(struct lrcu_ptr *ptr, u8 ns_id, 
                             lrcu_destructor_t *deinit);
+LRCU_EXPORT_SYMBOL(__lrcu_ptr_init);
 
 /***********************************************************/
 
-extern struct lrcu_handler *__lrcu_handler;
-extern __thread struct lrcu_thread_info *__lrcu_thread_info;
+//LRCU_EXPORT_SYMBOL(__lrcu_handler);
+//LRCU_EXPORT_SYMBOL(__lrcu_thread_info);
+//extern struct lrcu_handler *__lrcu_handler;
+//extern __thread struct lrcu_thread_info *__lrcu_thread_info;
 
 #endif

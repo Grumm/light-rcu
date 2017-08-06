@@ -54,7 +54,7 @@ static inline void list_insert(list_head_t *lh, list_t *e){
 /* p - data to store in list */
 #define list_add(lh, p) __list_add(lh, &(p), sizeof(p))
 static inline list_t *__list_add(list_head_t *lh, void *data, size_t size){
-    list_t *e = malloc(sizeof(list_t) + size);
+    list_t *e = LRCU_MALLOC(sizeof(list_t) + size);
     if(!e)
         return NULL;
 
@@ -99,10 +99,31 @@ static inline void list_splice(list_head_t *lh, list_head_t *lt){
 }
 
 /* e - temporary storage; n - working element, could be free'd */
-#define list_for_each(n, prev, lh) \
+#define list_for_each_ptr(val, n, prev, lh) \
             for ((n) = (prev) = (lh)->head; \
-                ((n) = (prev)) && ((prev) = (prev)->next, true); \
+                ((n) = (prev)) /* hack with strict aliasing */\
+                && ({char *_c = (n)->data; (val) = \
+                    (typeof(val))(*(void **)_c); (val);}) \
+                && ({rmb(); (prev) = (prev)->next, true;}); \
                 )
 
+#define list_for_each(n, prev, lh) \
+            for ((n) = (prev) = (lh)->head; \
+                ((n) = (prev)) && \
+                ({rmb(); (prev) = (prev)->next, true;}); \
+                )
+
+
+static inline list_t *list_find_ptr(list_head_t *lh, void *p){
+    list_t *n, *prev;
+    void *val = NULL;
+
+    list_for_each_ptr(val, n, prev, lh){
+        if(val == p){
+            return n;
+        }
+    }
+    return NULL;
+}
 
 #endif

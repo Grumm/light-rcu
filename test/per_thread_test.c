@@ -11,6 +11,8 @@ struct working_data{
     u64 c;
 };
 
+#define TEST_SLEEP
+
 #define LOGGING_PERIOD 1000000
 #if 1
 #define LRCU_LOG(x, ...) printf((x), ##__VA_ARGS__)
@@ -42,12 +44,14 @@ void *reader(void *arg){
         lrcu_read_lock();
         list_for_each(n, next, list){
             int r;
+#ifdef TEST_SLEEP
             r = rand() % 200000;
-            if(0 && r == 0){
+            if(r == 0){
                 printf("usleep--------------------\n");
                 fflush(stdout);
                 usleep(1200000);
             }
+#endif
             w = (struct working_data *)&n->data;
             (void)w;
             if(++reads % LOGGING_PERIOD == 0)
@@ -90,13 +94,15 @@ void *writer(void *arg){
         int op = rand() % 2;
         int r;
 
+#if 0
+        def TEST_SLEEP
         r = rand() % 200000;
-        if(0 && r == 0){
+        if(r == 0){
             printf("usleep--------------------\n");
             fflush(stdout);
             usleep(1200000);
         }
-
+#endif
         if(c > 10000)
             op = 1;
         if(counter > 40000000){

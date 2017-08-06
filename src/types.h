@@ -26,5 +26,8 @@ typedef int8_t i8;
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
         (type *)( (char *)__mptr - offsetof(type,member) );})
 
+#define likely(x)      __builtin_expect(!!(x), 1)
+#define unlikely(x)    __builtin_expect(!!(x), 0)
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
 
 #endif
