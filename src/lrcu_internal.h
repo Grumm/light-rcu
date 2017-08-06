@@ -1,7 +1,6 @@
 #ifndef _LRCU_INTERNAL_H
 #define _LRCU_INTERNAL_H
 
-#include "types.h"
 #include "atomics.h"
 
 enum{ /* thread worker states */

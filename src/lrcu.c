@@ -3,10 +3,6 @@
     locks taken only on lrcu_ptr  
 */
 
-#include <unistd.h>
-#include <assert.h>
-
-#include "types.h"
 #include "list.h"
 #include "atomics.h"
 #include "lrcu.h"

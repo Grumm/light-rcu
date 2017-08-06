@@ -13,9 +13,7 @@
                     iterating by sizeof(*(p))
 
 */
-#include "types.h"
 #include "atomics.h"
-#include <string.h>
 
 struct list;
 typedef struct list list_t;

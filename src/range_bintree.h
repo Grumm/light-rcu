@@ -1,15 +1,6 @@
 #ifndef _LRCU_BINTREE_CONTAINER_H
 #define _LRCU_BINTREE_CONTAINER_H
 
-#include "types.h"
-#include <inttypes.h>
-#include <stdio.h>
-#include <assert.h>
-#include <string.h>
-
-#define LRCU_BINTREE_LEN
-#define BINTREE_SEARCH_SELF_IMPLEMENTED
-
 struct range{
     u64 minv, maxv;
 };

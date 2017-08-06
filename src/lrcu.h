@@ -19,8 +19,6 @@
     (global)lrcu_ptr's have their version. thread accesses
 */
 #include "defines.h"
-#include "types.h"
-
 
 /***********************************************************/
 
@@ -32,7 +30,7 @@ struct lrcu_ptr {
     void *ptr; /* actual data behind pointer */
     lrcu_destructor_t *deinit;
     /* what about when version wraps -1? 
-        at least after 143 years on 4Ghz CPU in ticks :) */
+        u64 would last at least after 143 years on 4Ghz CPU in ticks :) */
     u64 version;
     u8 ns_id;
 };
