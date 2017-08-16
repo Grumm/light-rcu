@@ -1,0 +1,39 @@
+
+Short description and application.
+Light-RCU is a simple library written in C for purposes of implementing user-space RCU(XXX link) mechanism.
+Simplest use case - pointer that stores data read and written by mutiple threads. One way to implement safe data access is to use rwlocks, and the other way is by using lrcu:
+protect read-side by using rcu_read_lock()/rcu_read_unlock()
+protect write side by lrcu_write_lock()/lrcu_write_unlock()
+access the pointer by using lrcu_dereference(p)
+destruction of the object under the pointer should be done via lrcu_call(p, f) in read-side section
+
+Although there are few requirements to use lrcu:
+you need to call lrcu_init()/lrcu_deinit() on start/exit of the program
+for each thread using/modifying protected data lrcu_thread_init()/lrcu_thread_deinit() should be called.
+
+Detailed description and more application.
+One of the advantages of lrcu is the support of multiple namespaces, i.e. multiple spaces of rcu data structures could exist within a program and be completely independent from each other. The simple API description is a special case implementation for default namespace with id 0 - LRCU_NS_DEFAULT. User can define his own namespaces, but at this stage of implementation, build-time only. To add namespace, extend enumeration in defines.h file. To use API in case of custom namespace just add it to the enum, and use same functions, but with suffix _ns, and first parameter new namespace's id:
+
+lrcu_read_lock_ns(LRCU_NS_CUSTOM)
+lrcu_read_unlock_ns(LRCU_NS_CUSTOM)
+lrcu_write_lock_ns(LRCU_NS_CUSTOM)
+lrcu_write_unlock_ns(LRCU_NS_CUSTOM)
+lrcu_dereference(p)
+lrcu_call_ns(LRCU_NS_CUSTOM, p , func)
+
+Although before using, there custom initialization functions, besides calling lrcu_init()/lrcu_deinit(), there are also:
+lrcu_ns_init(LRCU_NS_CUSTOM)/lrcu_ns_deinit(LRCU_NS_CUSTOM)
+and for each thread along with lrcu_thread_init()/lrcu_thread_deinit() should be called:
+lrcu_thread_set_ns(LRCU_NS_CUSTOM)/lrcu_thread_del_ns(LRCU_NS_CUSTOM)
+
+Extended API has two more functions:
+lrcu_synchronize()/lrcu_synchronize_ns(LRCU_NS_CUSTOM) to wait for all running read sections to complete
+and lrcu_barrier()/lrcu_barrier_ns(LRCU_NS_CUSTOM) to wait for destructor of all running read sections to finish, in case running functions in module about to be unloaded.
+
+The more complex use of lrcu is if pointer, destructor and namespace info kept in structure. It's the struct lrcu_ptr, which is used by functions
+lrcu_ptr_init(&pp, LRCU_NS_CUSTOM, func) to initialize pp,
+lrcu_assign_ptr(&pp, p) to assign new data pointer,
+lrcu_dereference_ptr(&pp) to access actual data pointer,
+lrcu_call_ptr(&pp) to properly release the pointer.
+
+Another API extension is when user has his own locking mechanism to protect write side, and thus no need for lrcu_write_lock, which implies taking spinlock. There are special functions lrcu_assign_pointer(p, v)/lrcu_assign_pointer_ns(LRCU_NS_CUSTOM, p, v)/__lrcu_assign_ptr(pp, p) to do just this. 

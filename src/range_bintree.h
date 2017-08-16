@@ -1,6 +1,8 @@
 #ifndef _LRCU_BINTREE_CONTAINER_H
 #define _LRCU_BINTREE_CONTAINER_H
 
+#define BINTREE_SEARCH_SELF_IMPLEMENTED
+
 struct range{
     u64 minv, maxv;
 };
@@ -66,7 +68,7 @@ static inline void range_bintree_remove_overlapping(struct range_bintree *rbt){
     size_t i, j;
     size_t real_index, real_offset;
 
-    assert(rbt->sorted);
+    LRCU_ASSERT(rbt->sorted);
     for(i = 0, real_index = 0, real_offset = 0;
                             i < rbt->len; i++, real_index++){
         struct range *r_outer = &rbt->r[i];
@@ -75,7 +77,7 @@ static inline void range_bintree_remove_overlapping(struct range_bintree *rbt){
         u64 end_of_segment = r_outer->maxv;
         size_t delta_offset;
 
-        assert(r_outer->minv != RANGE_BINTREE_EMPTY_VALUE);
+        LRCU_ASSERT(r_outer->minv != RANGE_BINTREE_EMPTY_VALUE);
         for(j = i + 1; j < rbt->len; j++){
             r_inner = &rbt->r[j];
             if(end_of_segment < r_inner->minv)
@@ -108,8 +110,8 @@ static inline void range_bintree_squeeze(struct range_bintree *rbt){
     ssize_t index_squeeze = rbt->len - 2;
     struct range *r;
 
-    assert(rbt->sorted);
-    assert(rbt->len > 1);
+    LRCU_ASSERT(rbt->sorted);
+    LRCU_ASSERT(rbt->len > 1);
     for(i = rbt->len - 2; i >= 0; i--){
         struct range *r_next;
         if(i == 0)
@@ -138,7 +140,7 @@ out_squeeze:
 /* true if rbt->len is changed */
 static inline bool range_bintree_optimize(struct range_bintree *rbt, int opt_level){
     
-    assert(opt_level <= RANGE_BINTREE_OPTLEVEL_MAX);
+    LRCU_ASSERT(opt_level <= RANGE_BINTREE_OPTLEVEL_MAX);
 
     if(opt_level == RANGE_BINTREE_OPTLEVEL_MERGE){
         if(!rbt->sorted){
@@ -161,7 +163,7 @@ static inline bool range_bintree_optimize(struct range_bintree *rbt, int opt_lev
 }
 
 static inline u64 range_bintree_getmin(struct range_bintree *rbt){
-    assert(rbt->sorted);
+    LRCU_ASSERT(rbt->sorted);
     if(!rbt->sorted)
         return 0;
 
@@ -182,7 +184,7 @@ retry:
         rbt->sorted = false;
         return;
     }
-    assert(opt_level <= RANGE_BINTREE_OPTLEVEL_MAX);
+    LRCU_ASSERT(opt_level <= RANGE_BINTREE_OPTLEVEL_MAX);
     /* find closest range */
     range_bintree_optimize(rbt, opt_level++);
     goto retry;
@@ -191,7 +193,7 @@ retry:
 static inline void range_bintree_print(struct range_bintree *rbt){
     size_t i;
 
-    LRCU_LOG("range_bintree: len=%u capacity=%u\n", rbt->len, rbt->capacity);
+    LRCU_LOG("range_bintree: len=%zu capacity=%zu\n", rbt->len, rbt->capacity);
     for(i = 0; i < rbt->len; i++){
         LRCU_LOG("[%"PRIu64",%"PRIu64"]", rbt->r[i].minv, rbt->r[i].maxv);
     }

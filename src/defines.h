@@ -9,22 +9,19 @@ enum{
 
 #define LRCU_THREADS_MAX 64
 
+/* time between worker cycles */
 #define LRCU_WORKER_SLEEP_US    50000
+/* time between synchronize waiting loop */
 #define LRCU_NS_SYNC_SLEEP_US   10000
-#define LRCU_HANG_TIMEOUT_S     1
+/* hang detection mechanism to prevent complete malfunction */
+#define LRCU_HANG_TIMEOUT_S     60
 
 /***********************************************************/
-/* down here os api abstraction layer */
+/* OS api abstraction layer */
 
 #define LRCU_KERNEL __KERNEL__
 
-/* to indicate which one to use */
-#define BINTREE_SEARCH_SELF_IMPLEMENTED
-
-#define LRCU_CACHE_LINE_SIZE 64
-#define LRCU_ALIGNED __attribute__((__aligned__(LRCU_CACHE_LINE_SIZE)))
-
-#ifdef LRCU_KERNEL
+#if LRCU_KERNEL
 #include "linux.h"
 #else
 #include "user.h"
