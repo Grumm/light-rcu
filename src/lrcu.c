@@ -3,11 +3,9 @@
     locks taken only on lrcu_ptr  
 */
 
-#include "lrcu.h"
-#include "list.h"
-#include "atomics.h"
+#include <lrcu/lrcu.h>
 #include "lrcu_internal.h"
-#include "range_bintree.h"
+#include "range.h"
 
 static struct lrcu_handler *__lrcu_handler = NULL;
 LRCU_TLS_DEFINE(struct lrcu_thread_info *, __lrcu_thread_info);
@@ -32,7 +30,7 @@ LRCU_EXPORT_SYMBOL(lrcu_write_barrier_ns);
 /***********************************************************/
 
 static inline void __lrcu_write_lock(struct lrcu_namespace *ns){
-    spin_lock(&ns->write_lock);
+    lrcu_spin_lock(&ns->write_lock);
     ns->version++;
     wmb();
 }
@@ -53,7 +51,7 @@ LRCU_EXPORT_SYMBOL(lrcu_write_lock_ns);
 static inline void __lrcu_write_unlock(struct lrcu_namespace *ns){
     //wmb();
     //ns->version++;
-    spin_unlock(&ns->write_lock);
+    lrcu_spin_unlock(&ns->write_lock);
 }
 
 void lrcu_write_unlock_ns(u8 ns_id){
@@ -171,7 +169,7 @@ LRCU_EXPORT_SYMBOL(lrcu_read_unlock_ns);
 void *__lrcu_dereference(void **ptr){
     void *p = ACCESS_ONCE(*ptr);
 
-    rmb_depends();
+    read_barrier_depends();
     return p;
 }
 LRCU_EXPORT_SYMBOL(__lrcu_dereference);
@@ -179,7 +177,7 @@ LRCU_EXPORT_SYMBOL(__lrcu_dereference);
 void *lrcu_dereference_ptr(struct lrcu_ptr *ptr){
     void *p = ACCESS_ONCE(ptr->ptr);
 
-    rmb_depends();
+    read_barrier_depends();
     return p;
 }
 LRCU_EXPORT_SYMBOL(lrcu_dereference_ptr);
@@ -199,11 +197,11 @@ static inline void __lrcu_call(struct lrcu_namespace *ns,
 
     /* since we don't have local_irq_save(), this_cpu_ptr()
                         functions, only option is spinlock */
-    spin_lock(&ns->list_lock);
+    lrcu_spin_lock(&ns->list_lock);
 
                             /* NOT A POINTER!!! */
-    list_add(&ns->free_list, local_ptr);
-    spin_unlock(&ns->list_lock);
+    lrcu_list_add(&ns->free_list, local_ptr);
+    lrcu_spin_unlock(&ns->list_lock);
     /* XXX wakeup thread. see lrcu_read_unlock */
 }
 
@@ -245,17 +243,17 @@ sequence 2:
                             ...
                             read_unlock
 */
-static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct range_bintree *rbt){
+static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, lrcu_rangetree_t *rbt){
     struct lrcu_thread_info *ti;
-    list_t *e, *next;
+    lrcu_list_t *e, *next;
     u64 current_version;
 
     current_version = ns->version;
     
-    spin_lock(&ns->threads_lock);
+    lrcu_spin_lock(&ns->threads_lock);
 
     /* calculate thread's minimum version */
-    list_for_each_ptr(ti, e, next, &ns->threads){
+    lrcu_list_for_each_ptr(ti, e, next, &ns->threads){
         LRCU_TIMER_TYPE *ti_timeval = &ti->timeval[ns->id];
         struct lrcu_local_namespace lns;
         struct lrcu_local_namespace hung_lns;
@@ -313,10 +311,10 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
                             add [lns.version, current_version] to rbt,
                             can free ptr with version = 2
             worker wakes up, reads thread's lns, version = 2, counter = 0,
-                            nothing to add to range_bintree
+                            nothing to add to lrcu_rangetree
         */
         if(lns.counter != 0){
-            range_bintree_add(rbt, lns.version, current_version);
+            lrcu_rangetree_add(rbt, lns.version, current_version);
             /* 
                 Handling hung thread case.
                 We use hung_lns in usual threads to identify hung threads
@@ -327,7 +325,7 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
             if(likely(LRCU_TIMER_ISSET(ti_timeval))){ /* hanging timer initialized */
                 /* we are the only ones who has access to hung lns */
                 if(lns.version <= hung_lns.version){
-                    static const LRCU_TIMER_TYPE timeout =
+                    const LRCU_TIMER_TYPE timeout =
                                 LRCU_TIMER_INIT(LRCU_HANG_TIMEOUT_S, 0);
                     LRCU_TIMER_TYPE timer_expires;
                     LRCU_TIMER_TYPE now;
@@ -339,8 +337,8 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
                             put thread in list of hanging threads and check them separately */
 
                         LRCU_WARN("hung thread");
-                        list_unlink(&ns->threads, e);
-                        list_insert(&ns->hung_threads, e);
+                        lrcu_list_unlink(&ns->threads, e);
+                        lrcu_list_insert(&ns->hung_threads, e);
                         //LRCU_TIMER_CLEAR(&LRCU_GET_LNS(ti, ns)->timeval);
                     }
                 }
@@ -356,7 +354,7 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
     }
 
     /* the point of hang thread, that it has hang version, and  */
-    list_for_each_ptr(ti, e, next, &ns->hung_threads){
+    lrcu_list_for_each_ptr(ti, e, next, &ns->hung_threads){
         struct lrcu_local_namespace lns, hung_lns;
 
         hung_lns = *LRCU_GET_HUNG_LNS(ti, ns);
@@ -365,15 +363,15 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
         barrier();
         if(lns.version > hung_lns.version || lns.counter == 0){
             /* we have been changed after we hung */
-            list_unlink(&ns->hung_threads, e);
-            list_insert(&ns->threads, e);
+            lrcu_list_unlink(&ns->hung_threads, e);
+            lrcu_list_insert(&ns->threads, e);
         }
 
         if(lns.counter != 0){
             if(lns.version > hung_lns.version)
-                range_bintree_add(rbt, lns.version, current_version);
+                lrcu_rangetree_add(rbt, lns.version, current_version);
             else
-                range_bintree_add(rbt, lns.version, hung_lns.version);
+                lrcu_rangetree_add(rbt, lns.version, hung_lns.version);
         }
 
         /* 
@@ -382,35 +380,35 @@ static inline void __lrcu_get_synchronized(struct lrcu_namespace *ns, struct ran
             either zero counter, or have known hang point(version)
         */
     }
-    spin_unlock(&ns->threads_lock);
-    range_bintree_optimize(rbt, RANGE_BINTREE_OPTLEVEL_MERGE);
+    lrcu_spin_unlock(&ns->threads_lock);
+    lrcu_rangetree_optimize(rbt, RANGE_BINTREE_OPTLEVEL_MERGE);
 }
 
 static bool lrcu_ns_destructor(struct lrcu_namespace *ns, bool forced){
     struct lrcu_thread_info *ti;
-    list_t *e, *next;
+    lrcu_list_t *e, *next;
 
-    spin_lock(&ns->threads_lock);
-    list_for_each_ptr(ti, e, next, &ns->threads){
+    lrcu_spin_lock(&ns->threads_lock);
+    lrcu_list_for_each_ptr(ti, e, next, &ns->threads){
         if(forced || (ti->lns[ns->id].counter == 0 &&
                     ti->lns[ns->id].version >= ns->version)){
-            list_unlink(&ns->threads, e);
+            lrcu_list_unlink(&ns->threads, e);
             LRCU_FREE(e);
         }
     }
-    if(list_empty(&ns->threads)){
-        spin_unlock(&ns->threads_lock);
+    if(lrcu_list_empty(&ns->threads)){
+        lrcu_spin_unlock(&ns->threads_lock);
         LRCU_FREE(ns);
         return true;
     }
-    spin_unlock(&ns->threads_lock);
+    lrcu_spin_unlock(&ns->threads_lock);
     return false;
 }
 
 static inline void *lrcu_worker(void *arg){
     struct lrcu_handler *h = (struct lrcu_handler *)arg;
-    struct range ranges[LRCU_THREADS_MAX];
-
+    lrcu_range_t ranges[LRCU_THREADS_MAX];
+    
     /*
         pointer to ti, so that any ns when added threads, 
         added this one too. this allows to use any ns in destructors
@@ -430,31 +428,31 @@ static inline void *lrcu_worker(void *arg){
             if(ns == NULL)
                 continue;
 
-            if(!list_empty(&ns->free_list)){
-                spin_lock(&ns->list_lock);
-                list_splice(&ns->worker_list, &ns->free_list);
-                spin_unlock(&ns->list_lock);
+            if(!lrcu_list_empty(&ns->free_list)){
+                lrcu_spin_lock(&ns->list_lock);
+                lrcu_list_splice(&ns->worker_list, &ns->free_list);
+                lrcu_spin_unlock(&ns->list_lock);
             }
-            if(!list_empty(&ns->worker_list)){
+            if(!lrcu_list_empty(&ns->worker_list)){
                 struct lrcu_ptr *ptr;
-                list_t *n, *next;
-                struct range_bintree rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
+                lrcu_list_t *n, *next;
+                lrcu_rangetree_t rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
 
                 __lrcu_get_synchronized(ns, &rbt);
 
-                list_for_each(n, next, &ns->worker_list){
+                lrcu_list_for_each(n, next, &ns->worker_list){
                     ptr = (struct lrcu_ptr *)n->data;
                     /* do actual job */
-                    if(!range_bintree_find(&rbt, ptr->version)){
+                    if(!lrcu_rangetree_find(&rbt, ptr->version)){
                         ptr->deinit(ptr->ptr); /* XXX we could reschedule if we are not ready */
-                        list_unlink(&ns->worker_list, n);
-                        free(n);
+                        lrcu_list_unlink(&ns->worker_list, n);
+                        LRCU_FREE(n);
                     }
                 }
                 /* barrier for processed version write */
                 wmb();
                 /* every callback up to min_version has been called. release lrcu_barrier */
-                ns->processed_version = range_bintree_getmin(&rbt);
+                ns->processed_version = lrcu_rangetree_getmin(&rbt);
             }
             /* make sure we see both ns[] and worker_ns[] */
             rmb();
@@ -470,20 +468,20 @@ static inline void *lrcu_worker(void *arg){
                 until it reaches some state, that would indicate 100% it passing
                 that section of code, e.g. (thread_info->lns[i].version >= ns->version)
             */
-            if(unlikely(list_empty(&ns->worker_list)
+            if(unlikely(lrcu_list_empty(&ns->worker_list)
                                 && h->worker_ns[i] != h->ns[i])){
-                spin_lock(&h->ns_lock);
+                lrcu_spin_lock(&h->ns_lock);
                 /* check again under spinlock */
                 if(likely(h->worker_ns[i] != h->ns[i]
-                        && list_empty(&ns->free_list)
+                        && lrcu_list_empty(&ns->free_list)
                         && lrcu_ns_destructor(h->worker_ns[i], false))){
                     h->worker_ns[i] = NULL;
-                    spin_unlock(&h->ns_lock);
+                    lrcu_spin_unlock(&h->ns_lock);
                     continue;
                 }
-                spin_unlock(&h->ns_lock);
+                lrcu_spin_unlock(&h->ns_lock);
             }
-            if(!list_empty(&ns->worker_list)){
+            if(!lrcu_list_empty(&ns->worker_list)){
                 __lrcu_write_barrier(ns); /* bump version so that threads do not hang */
             }
         }
@@ -497,7 +495,7 @@ static inline void *lrcu_worker(void *arg){
 /***********************************************************/
 
 static inline void __lrcu_synchronize(struct lrcu_namespace *ns){
-    struct range ranges[LRCU_THREADS_MAX];
+    lrcu_range_t ranges[LRCU_THREADS_MAX];
     u64 current_version;
 
     LRCU_ASSERT(ns);
@@ -505,11 +503,11 @@ static inline void __lrcu_synchronize(struct lrcu_namespace *ns){
     current_version = ns->version;
     rmb();
     while(1){
-        struct range_bintree rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
+        lrcu_rangetree_t rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
 
         __lrcu_get_synchronized(ns, &rbt);
 
-        if(!range_bintree_find(&rbt, current_version))
+        if(!lrcu_rangetree_find(&rbt, current_version))
             break;
         LRCU_USLEEP(ns->sync_timeout);
     }
@@ -556,11 +554,11 @@ LRCU_EXPORT_SYMBOL(lrcu_barrier_ns);
 
 /***********************************************************/
 
+/* TODO make it constructor/destructor */
 struct lrcu_handler *lrcu_init(void){
     struct lrcu_handler *h = __lrcu_init();
 
     LRCU_ASSERT(h);
-
     if(lrcu_ns_init(LRCU_NS_DEFAULT))
         return h;
 
@@ -573,7 +571,6 @@ LRCU_EXPORT_SYMBOL(lrcu_init);
 struct lrcu_handler *__lrcu_init(void){
     struct lrcu_handler *h;
 
-    LRCU_TLS_INIT(__lrcu_handler);
     LRCU_TLS_INIT(__lrcu_thread_info);
 
     h = LRCU_CALLOC(1, sizeof(struct lrcu_handler));
@@ -593,7 +590,7 @@ struct lrcu_handler *__lrcu_init(void){
     barrier();
     /* wait for worker thread to start */
     while(h->worker_state == LRCU_WORKER_RUN)
-        cpu_relax();
+        LRCU_USLEEP(1);
 
     /* worker_state */
     mb();
@@ -606,7 +603,6 @@ out:
     LRCU_DEL_HANDLER();
     LRCU_FREE(h);
     LRCU_TLS_DEINIT(__lrcu_thread_info);
-    LRCU_TLS_DEINIT(__lrcu_handler);
     return NULL;
 }
 LRCU_EXPORT_SYMBOL(__lrcu_init);
@@ -617,11 +613,12 @@ void lrcu_deinit(void){
     LRCU_ASSERT(h);
 
     h->worker_state = LRCU_WORKER_STOP;
-    LCRU_THREAD_JOIN(h->worker_tid);
+    LRCU_LOG("thread_join before\n");
+    LRCU_THREAD_JOIN(&h->worker_tid);
+    LRCU_LOG("thread_join after\n");
     LRCU_DEL_HANDLER();
 
     LRCU_TLS_DEINIT(__lrcu_thread_info);
-    LRCU_TLS_DEINIT(__lrcu_handler);
     /* TODO remove all ns and do something with all ptrs? */
 }
 LRCU_EXPORT_SYMBOL(lrcu_deinit);
@@ -636,27 +633,28 @@ struct lrcu_namespace *lrcu_ns_init(u8 id){
 
     /* schedule lrcu_thread_set_ns to worker */
 
-    spin_lock(&h->ns_lock);
+    lrcu_spin_lock(&h->ns_lock);
     LRCU_ASSERT(!h->ns[id]);
     LRCU_ASSERT(h->worker_ti);
 
     if(h->worker_ns[id] != NULL){
+        lrcu_list_t *e;
         /* alraedy allocated, but pending removal. nothing to do */
         ns = h->worker_ns[id];
-        list_t *e = list_find_ptr(&ns->threads, h->worker_ti);
+        e = lrcu_list_find_ptr(&ns->threads, h->worker_ti);
         LRCU_ASSERT(e);
         /* how can this be? when removing, we should take lock */
         if(e == NULL){
             /* no need to take threads_lock since we are not working ns */
-            if (list_add(&ns->threads, h->worker_ti) == NULL){
-                spin_unlock(&h->ns_lock);
+            if (lrcu_list_add(&ns->threads, h->worker_ti) == NULL){
+                lrcu_spin_unlock(&h->ns_lock);
                 return NULL;
             }
         }
         /* make sure we add first, only then recreate ns. XXX maybe wmb()? */
         barrier();
         h->ns[id] = ns;
-        spin_unlock(&h->ns_lock);
+        lrcu_spin_unlock(&h->ns_lock);
         return ns;
     }
 
@@ -667,7 +665,7 @@ struct lrcu_namespace *lrcu_ns_init(u8 id){
     ns->id = id;
     ns->sync_timeout = LRCU_NS_SYNC_SLEEP_US;
     /* no need to take a lock */
-    if (list_add(&ns->threads, h->worker_ti) == NULL){
+    if (lrcu_list_add(&ns->threads, h->worker_ti) == NULL){
         LRCU_FREE(ns);
         ns = NULL;
         goto out;
@@ -679,7 +677,7 @@ struct lrcu_namespace *lrcu_ns_init(u8 id){
     wmb(); /* make sure they are seen both. have rmb() on read side */
 
 out:
-    spin_unlock(&h->ns_lock);
+    lrcu_spin_unlock(&h->ns_lock);
     return ns;
 }
 LRCU_EXPORT_SYMBOL(lrcu_ns_init);
@@ -690,7 +688,7 @@ void lrcu_ns_deinit_safe(u8 id){
     
     LRCU_ASSERT(h);
 
-    spin_lock(&h->ns_lock);
+    lrcu_spin_lock(&h->ns_lock);
     ns = h->ns[id];
     LRCU_ASSERT(ns);
 
@@ -698,7 +696,7 @@ void lrcu_ns_deinit_safe(u8 id){
     /* all threads shall see this pointer now */
     wmb();
     lrcu_write_barrier_ns(id); /* bump version */
-    spin_unlock(&h->ns_lock);
+    lrcu_spin_unlock(&h->ns_lock);
 }
 LRCU_EXPORT_SYMBOL(lrcu_ns_deinit_safe);
 
@@ -708,7 +706,7 @@ void lrcu_ns_deinit(u8 id){
 
     LRCU_ASSERT(h);
 
-    spin_lock(&h->ns_lock);
+    lrcu_spin_lock(&h->ns_lock);
     ns = h->ns[id];
     LRCU_ASSERT(ns);
 
@@ -722,7 +720,7 @@ void lrcu_ns_deinit(u8 id){
     barrier();
     h->worker_ns[id] = NULL;
 
-    spin_unlock(&h->ns_lock);
+    lrcu_spin_unlock(&h->ns_lock);
 }
 LRCU_EXPORT_SYMBOL(lrcu_ns_deinit);
 
@@ -765,15 +763,15 @@ bool lrcu_thread_set_ns(u8 ns_id){
     LRCU_ASSERT(ti);
     LRCU_ASSERT(ti->h);
 
-    spin_lock(&ti->h->ns_lock);
+    lrcu_spin_lock(&ti->h->ns_lock);
     ns = ti->h->ns[ns_id];
     LRCU_ASSERT(ns);
 
     /* locking in spinlock. careful of deadlock */
-    spin_lock(&ns->threads_lock);
-    ret = list_add(&ns->threads, ti);
-    spin_unlock(&ns->threads_lock);
-    spin_unlock(&ti->h->ns_lock);
+    lrcu_spin_lock(&ns->threads_lock);
+    ret = lrcu_list_add(&ns->threads, ti);
+    lrcu_spin_unlock(&ns->threads_lock);
+    lrcu_spin_unlock(&ti->h->ns_lock);
 
     return ret != NULL;
 }
@@ -782,18 +780,18 @@ LRCU_EXPORT_SYMBOL(lrcu_thread_set_ns);
 /* assume ns lock taken and ti and ti->h non-null */
 static bool thread_remove_from_ns(struct lrcu_thread_info *ti, u8 ns_id){
     struct lrcu_namespace *ns = ti->h->worker_ns[ns_id];
-    list_t *e;
+    lrcu_list_t *e;
     int found = false;
 
     LRCU_ASSERT(ns);
 
-    spin_lock(&ns->threads_lock); /* locking in spinlock. careful of deadlock */
-    e = list_find_ptr(&ns->threads, ti);
+    lrcu_spin_lock(&ns->threads_lock); /* locking in spinlock. careful of deadlock */
+    e = lrcu_list_find_ptr(&ns->threads, ti);
     if(e != NULL){
-        list_unlink(&ns->threads, e);
+        lrcu_list_unlink(&ns->threads, e);
         found = true;
     }
-    spin_unlock(&ns->threads_lock);
+    lrcu_spin_unlock(&ns->threads_lock);
     if(!found){
         /* failed to set thread's ns, then exited thread. */
     }
@@ -807,9 +805,9 @@ bool lrcu_thread_del_ns(u8 ns_id){
     LRCU_ASSERT(ti);
     LRCU_ASSERT(ti->h);
 
-    spin_lock(&ti->h->ns_lock);
+    lrcu_spin_lock(&ti->h->ns_lock);
     ret = thread_remove_from_ns(ti, ns_id);
-    spin_unlock(&ti->h->ns_lock);
+    lrcu_spin_unlock(&ti->h->ns_lock);
 
     return ret;
 }
@@ -823,11 +821,11 @@ static void thread_destructor_callback(struct lrcu_thread_info *ti){
     LRCU_ASSERT(ti);
     LRCU_ASSERT(h);
 
-    spin_lock(&h->ns_lock);
+    lrcu_spin_lock(&h->ns_lock);
     for(i = 0; i < LRCU_NS_MAX; i++){
         found = found || thread_remove_from_ns(ti, i);
     }
-    spin_unlock(&h->ns_lock);
+    lrcu_spin_unlock(&h->ns_lock);
     if(!found){
         /* failed to set thread's ns, then exited thread. */
     }

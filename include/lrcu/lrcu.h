@@ -18,11 +18,12 @@
     each thread has to have local version - which section thread in
     (global)lrcu_ptr's have their version. thread accesses
 */
-#include "defines.h"
 
 /***********************************************************/
 
-typedef void (lrcu_destructor_t)(void *);
+typedef void (lrcu_destructor_t)(void *); /* no typedef forward declarations */
+
+#include "defines.h"
 
 struct lrcu_ptr {
     void *ptr; /* actual data behind pointer */
@@ -32,6 +33,7 @@ struct lrcu_ptr {
     u64 version;
     u8 ns_id;
 };
+
 
 /***********************************************************/
 

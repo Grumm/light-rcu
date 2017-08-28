@@ -1,22 +1,11 @@
 #ifndef _LRCU_INTERNAL_H
 #define _LRCU_INTERNAL_H
 
+#include <lrcu/lrcu.h>
+#include "compiler.h"
 #include "atomics.h"
+#include "spinlock.h"
 #include "list.h"
-/*
- * container_of - cast a member of a structure out to the containing structure
- * @ptr:        the pointer to the member.
- * @type:       the type of the container struct this is embedded in.
- * @member:     the name of the member within the struct.
- *
- */
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-
-#define likely(x)      __builtin_expect(!!(x), 1)
-#define unlikely(x)    __builtin_expect(!!(x), 0)
-#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
 
 enum{ /* thread worker states */
     LRCU_WORKER_READY = 0,
@@ -27,7 +16,7 @@ enum{ /* thread worker states */
 };
 
 struct lrcu_handler{
-    spinlock_t  ns_lock;
+    lrcu_spinlock_t  ns_lock;
     struct lrcu_namespace *ns[LRCU_NS_MAX];
     struct lrcu_namespace *worker_ns[LRCU_NS_MAX]; 
     /* duplicated set of pointers. used to properly remove namespaces */
@@ -39,15 +28,15 @@ struct lrcu_handler{
 };
 
 struct lrcu_namespace {
-    spinlock_t  write_lock;
+    lrcu_spinlock_t  write_lock;
     u64 processed_version;
     u32 sync_timeout;
-    spinlock_t  threads_lock;
-    list_head_t threads;
-    list_head_t hung_threads;
+    lrcu_spinlock_t  threads_lock;
+    lrcu_list_head_t threads;
+    lrcu_list_head_t hung_threads;
     u8 id;
-    spinlock_t  list_lock;
-    list_head_t free_list, worker_list;
+    lrcu_spinlock_t  list_lock;
+    lrcu_list_head_t free_list, worker_list;
     u64 version LRCU_ALIGNED;
 } LRCU_ALIGNED;
 

@@ -16,7 +16,7 @@
 
 /* shall return NULL on success */
 #define LRCU_THREAD_CREATE(tid, func, data) pthread_create(tid, NULL, func, data)
-#define LCRU_THREAD_JOIN(tid) pthread_join(tid, NULL)
+#define LRCU_THREAD_JOIN(ptid) pthread_join(*(ptid), NULL)
 typedef pthread_t LRCU_THREAD_T;
 
 #define LRCU_TLS_DEFINE(t, v) static LRCU_ALIGNED __thread t v
@@ -35,11 +35,13 @@ typedef pthread_t LRCU_THREAD_T;
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "types.h"
 
 #define LRCU_CALLOC(a, b) calloc((a), (b))
 #define LRCU_MALLOC(a) malloc(a)
 #define LRCU_FREE(a) free(a)
+
+#define LRCU_QSORT(base, num, size, cmp_func) \
+		qsort((base), (num), (size), (cmp_func))
 
 #define LRCU_USLEEP(x) usleep(x)
 
@@ -62,5 +64,8 @@ typedef struct timeval LRCU_TIMER_TYPE;
 #define LRCU_TIMER_ISSET(x) timerisset(x)
 #define LRCU_TIMER_CLEAR(x) timerclear(x)
 #define LRCU_TIMER_CMP(a, b, c) timercmp((a), (b), c)
+
+/* for testing purposes */
+#define LRCU_EXIT(x) exit(x)
 
 #endif /* __LRCU_USER_SPACE_DEFINES_H__ */

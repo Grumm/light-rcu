@@ -2,44 +2,44 @@
 #define _LRCU_SIMPLE_LIST_H
 
 /*
-    list API:
+    lrcu_list API:
 
-    list_init
-    list_add --inplace copy data with sizeof macro
-    list_del
-    list_empty
-    list_splice
-    list_for_each --first argument is a pointer to actual data in list element, 
+    lrcu_list_init
+    lrcu_list_add --inplace copy data with sizeof macro
+    lrcu_list_del
+    lrcu_list_empty
+    lrcu_list_splice
+    lrcu_list_for_each --first argument is a pointer to actual data in lrcu_list element, 
                     iterating by sizeof(*(p))
 
 */
 #include "atomics.h"
 
-struct list;
-typedef struct list list_t;
-struct list{
-    list_t *next, *prev;
+struct lrcu_list;
+typedef struct lrcu_list lrcu_list_t;
+struct lrcu_list{
+    lrcu_list_t *next, *prev;
     char data[0];
 };
 
-typedef struct list_head {
-    list_t *head, *tail;
-} list_head_t;
+typedef struct lrcu_lrcu_list_head_s {
+    lrcu_list_t *head, *tail;
+} lrcu_list_head_t;
 
-static inline void list_init(list_head_t *lh){
+static inline void lrcu_list_init(lrcu_list_head_t *lh){
     lh->head = lh->tail = NULL;
 }
 
-static inline bool list_empty(list_head_t *lh){
+static inline bool lrcu_list_empty(lrcu_list_head_t *lh){
     return lh->head == NULL;
 }
 
-static inline void list_insert(list_head_t *lh, list_t *e){
-    if(list_empty(lh)){ /* no elements */
+static inline void lrcu_list_insert(lrcu_list_head_t *lh, lrcu_list_t *e){
+    if(lrcu_list_empty(lh)){ /* no elements */
         lh->head = e;
         lh->tail = e;
-    } else { /* >=1 elem in list */
-        list_t *t;
+    } else { /* >=1 elem in lrcu_list */
+        lrcu_list_t *t;
 
         t = lh->tail;
         lh->tail = e;
@@ -49,23 +49,23 @@ static inline void list_insert(list_head_t *lh, list_t *e){
     }
 }
 
-/* p - data to store in list */
-#define list_add(lh, p) __list_add(lh, &(p), sizeof(p))
-static inline list_t *__list_add(list_head_t *lh, void *data, size_t size){
-    list_t *e = LRCU_MALLOC(sizeof(list_t) + size);
+/* p - data to store in lrcu_list */
+#define lrcu_list_add(lh, p) __lrcu_list_add(lh, &(p), sizeof(p))
+static inline lrcu_list_t *__lrcu_list_add(lrcu_list_head_t *lh, void *data, size_t size){
+    lrcu_list_t *e = LRCU_MALLOC(sizeof(lrcu_list_t) + size);
     if(!e)
         return NULL;
 
     memcpy(&e->data[0], data, size);
     e->next = NULL;
     e->prev = NULL;
-    list_insert(lh, e);
+    lrcu_list_insert(lh, e);
     return e;
 }
 
 /* if you want to use this with lrcu, you should walk it only forward */
-//#define list_unlink_data(lh, p) list_unlink(lh, container_of((p), list_t, data))
-static inline void list_unlink(list_head_t *lh, list_t *e){
+//#define lrcu_list_unlink_data(lh, p) lrcu_list_unlink(lh, container_of((p), lrcu_list_t, data))
+static inline void lrcu_list_unlink(lrcu_list_head_t *lh, lrcu_list_t *e){
     if(e->next)
         e->next->prev = e->prev;
     else /* we are last element */
@@ -82,10 +82,10 @@ static inline void list_unlink(list_head_t *lh, list_t *e){
     return;
 }
 
-static inline void list_splice(list_head_t *lh, list_head_t *lt){
-    if(list_empty(lt))
+static inline void lrcu_list_splice(lrcu_list_head_t *lh, lrcu_list_head_t *lt){
+    if(lrcu_list_empty(lt))
         return;
-    if(list_empty(lh)){
+    if(lrcu_list_empty(lh)){
         *lh = *lt;
     }else{
         lh->tail->next = lt->head;
@@ -93,11 +93,11 @@ static inline void list_splice(list_head_t *lh, list_head_t *lt){
 
         lh->tail = lt->tail;
     }
-    list_init(lt);
+    lrcu_list_init(lt);
 }
 
 /* e - temporary storage; n - working element, could be free'd */
-#define list_for_each_ptr(val, n, prev, lh) \
+#define lrcu_list_for_each_ptr(val, n, prev, lh) \
             for ((n) = (prev) = (lh)->head; \
                 ((n) = (prev)) /* hack with strict aliasing */\
                 && ({char *_c = (n)->data; (val) = \
@@ -105,18 +105,18 @@ static inline void list_splice(list_head_t *lh, list_head_t *lt){
                 && ({rmb(); (prev) = (prev)->next, true;}); \
                 )
 
-#define list_for_each(n, prev, lh) \
+#define lrcu_list_for_each(n, prev, lh) \
             for ((n) = (prev) = (lh)->head; \
                 ((n) = (prev)) && \
                 ({rmb(); (prev) = (prev)->next, true;}); \
                 )
 
 
-static inline list_t *list_find_ptr(list_head_t *lh, void *p){
-    list_t *n, *prev;
+static inline lrcu_list_t *lrcu_list_find_ptr(lrcu_list_head_t *lh, void *p){
+    lrcu_list_t *n, *prev;
     void *val = NULL;
 
-    list_for_each_ptr(val, n, prev, lh){
+    lrcu_list_for_each_ptr(val, n, prev, lh){
         if(val == p){
             return n;
         }

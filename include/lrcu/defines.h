@@ -7,7 +7,7 @@ enum{
     LRCU_NS_MAX, /* but no more than 255 */
 };
 
-#define LRCU_THREADS_MAX 64
+#define LRCU_THREADS_MAX 8
 
 /* time between worker cycles */
 #define LRCU_WORKER_SLEEP_US    50000
@@ -19,9 +19,15 @@ enum{
 /***********************************************************/
 /* OS api abstraction layer */
 
-#define LRCU_KERNEL __KERNEL__
+#if defined(__KERNEL__)
+#define LRCU_LINUX
+#else
+#define LRCU_USER
+#endif
 
-#if LRCU_KERNEL
+#include "types.h"
+
+#ifdef LRCU_LINUX
 #include "linux.h"
 #else
 #include "user.h"

@@ -4,8 +4,7 @@
 #include <inttypes.h>
 #include <unistd.h>
 
-#include <lrcu.h>
-#include <lrcu_internal.h> /* for ACCESS_ONCE */
+#include <lrcu/lrcu.h>
 
 /* Simple API usage example */
 
@@ -44,16 +43,15 @@ void shared_data_destructor(void *p){
     free(data);
 }
 
-int shared_data_process(struct shared_data *data){
+bool shared_data_process(struct shared_data *data){
     if(data){
-        (void)ACCESS_ONCE(data->c);
+        (void)data->c;
         assert(data->c);
         assert(data->c != INVALID_C_AFTER);
         if(data->c == INVALID_C_BEFORE)
-            return 2;
-        return 1;
+            return false;
     }
-    return 3;
+    return true;
 }
 
 void shared_data_release(struct shared_data *data){
@@ -69,13 +67,11 @@ void *reader(void *arg){
     lrcu_thread_init();
 
     while(shptr->flag){
-        int ret;
         lrcu_read_lock();
         struct shared_data *data = lrcu_dereference(shptr->ptr);
-        ret = shared_data_process(data);
-        processed++;
-        if(ret == 2)
+        if(!shared_data_process(data))
             accrel++;
+        processed++;
         lrcu_read_unlock();
         if(shptr->reader_timer)
             usleep(shptr->reader_timer);
