@@ -16,6 +16,9 @@ enum{
 /* hang detection mechanism to prevent complete malfunction */
 #define LRCU_HANG_TIMEOUT_S     60
 
+//#define LRCU_LIST_ATOMIC
+//#define LRCU_LIST_DEBUG
+
 /***********************************************************/
 /* OS api abstraction layer */
 

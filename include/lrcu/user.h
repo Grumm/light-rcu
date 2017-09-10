@@ -27,6 +27,10 @@ typedef pthread_t LRCU_THREAD_T;
 #define LRCU_TLS_SET(a, b) ((a) = (b))
 #define LRCU_TLS_GET(a) (a)
 
+/* preemption things */
+#define LRCU_PREEMPT_ENABLE()
+#define LRCU_PREEMPT_DISABLE()
+
 /* misc */
 #include <stdlib.h>
 #include <string.h>

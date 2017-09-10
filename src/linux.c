@@ -1,3 +1,5 @@
+#include <lrcu/lrcu.h>
+#ifdef LRCU_LINUX
 #include <linux/module.h>
 
 static int __init lrcu_start(void)
@@ -17,3 +19,4 @@ MODULE_LICENSE("GPL");
 
 MODULE_DESCRIPTION("LRCU" ", v" DRV_VERSION);
 MODULE_AUTHOR("Andrei Dubasov, andrew.dubasov@gmail.com");
+#endif

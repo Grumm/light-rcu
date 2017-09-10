@@ -53,6 +53,12 @@ typedef struct lrcu_ts_compl_data LRCU_THREAD_T;
 #define LRCU_TLS_SET(a, b) (current->a = (b))
 #define LRCU_TLS_GET(a) (current->a)
 
+/* preemption things */
+#include <linux/preempt.h>
+
+#define LRCU_PREEMPT_ENABLE() preempt_enable()
+#define LRCU_PREEMPT_DISABLE() preempt_disable()
+
 /* misc */
 #include <linux/slab.h>
 #include <linux/delay.h>
@@ -61,9 +67,12 @@ typedef struct lrcu_ts_compl_data LRCU_THREAD_T;
 //#define LRCU_CALLOC(a, b) kzalloc((a) * (b), GFP_ATOMIC)
 //#define LRCU_MALLOC(a) kmalloc(a, GFP_ATOMIC)
 //#define LRCU_FREE(a) kfree(a)
-#define LRCU_CALLOC(a, b) vzalloc((a) * (b))
-#define LRCU_MALLOC(a) vmalloc(a)
-#define LRCU_FREE(a) vfree(a)
+#define LRCU_CALLOC(a, b) kzalloc((a) * (b), GFP_KERNEL)
+#define LRCU_MALLOC(a) kmalloc(a, GFP_KERNEL)
+#define LRCU_FREE(a) kfree(a)
+//#define LRCU_CALLOC(a, b) vzalloc((a) * (b))
+//#define LRCU_MALLOC(a) vmalloc(a)
+//#define LRCU_FREE(a) vfree(a)
 
 #include <linux/sort.h>
 #define LRCU_QSORT(base, num, size, cmp_func) \

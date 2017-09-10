@@ -26,7 +26,7 @@ HEADERS_ALL = $(HEADERS_LIB) $(HEADERS_EX1)
 
 CC = cc
 CFLAGS += -I$(INCLUDE_DIR) -L$(ROOT_DIR)
-CFLAGS += -g -O3 -Wall -Wextra --std=gnu99 -Werror
+CFLAGS +=  --std=gnu99 -g -O3 -Wall -Wextra -Werror
 LDFLAGS += -flto
 AR = ar
 ARFLAGS = rcs
@@ -70,5 +70,5 @@ clean:
 	-rm -f $(OBJECTS_EX2)
 	-rm -f $(TARGET_EX)
 	cd $(LRCU_DIR)
-	make -C $(KERNEL_DIR) M=$(LRCU_DIR) CONFIG_LRCU=m clean
-	make -C $(KERNEL_DIR) M=$(TARGET_EX2_DIR) clean
+	#make -C $(KERNEL_DIR) M=$(LRCU_DIR) CONFIG_LRCU=m clean
+	#make -C $(KERNEL_DIR) M=$(TARGET_EX2_DIR) clean

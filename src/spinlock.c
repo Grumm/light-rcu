@@ -4,15 +4,24 @@
 /* Code copied from http://locklessinc.com/articles/locks/ */
 
 void lrcu_spin_lock(lrcu_spinlock_t *t){
-    unsigned short me = lrcu_atomic_xadd(&t->s.users, 1);
-    
-    while (t->s.ticket != me)
+    unsigned short me;
+
+    LRCU_PREEMPT_DISABLE();
+    me = lrcu_atomic_xadd(&t->s.users, 1);    
+    for(;;){
+        if(t->s.ticket == me)
+            break;
+
+        LRCU_PREEMPT_ENABLE();
         cpu_relax();
+        LRCU_PREEMPT_DISABLE();
+    }
 }
 
 void lrcu_spin_unlock(lrcu_spinlock_t *t){
     barrier();
     t->s.ticket++;
+    LRCU_PREEMPT_ENABLE();
 }
 
 int lrcu_spin_trylock(lrcu_spinlock_t *t){
@@ -21,9 +30,11 @@ int lrcu_spin_trylock(lrcu_spinlock_t *t){
     unsigned cmp = ((unsigned) me << 16) + me;
     unsigned cmpnew = ((unsigned) menew << 16) + me;
 
+    LRCU_PREEMPT_DISABLE();
     if (lrcu_cmpxchg(&t->u, cmp, cmpnew) == cmp)
         return 0;
     
+    LRCU_PREEMPT_ENABLE();
     return 1; // Busy
 }
 

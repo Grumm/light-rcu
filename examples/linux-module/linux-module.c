@@ -58,6 +58,7 @@ void shared_data_release(struct shared_data *data){
 void *reader(void *arg){
     struct shared_ptr *shptr = (struct shared_ptr *)arg;
     u64 processed = 0, accrel = 0;
+    return NULL;
 
     lrcu_thread_init();
 
@@ -105,7 +106,7 @@ void *writer(void *arg){
 }
 
 int run_test(int total_timer, int readers, int writers){
-    struct shared_ptr shptr = {NULL, 10, 10, 1};
+    struct shared_ptr shptr = {NULL, 0, 0, 1};
     LRCU_THREAD_T *r_tids;
     LRCU_THREAD_T *w_tids;
     int i;
