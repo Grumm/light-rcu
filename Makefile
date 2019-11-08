@@ -4,7 +4,7 @@ LRCU_DIR = $(ROOT_DIR)/src
 INCLUDE_DIR = $(ROOT_DIR)/include
 EXAMPLES_DIR = $(ROOT_DIR)/examples
 TESTS_DIR = $(ROOT_DIR)/tests
-KERNEL_DIR = /home/grumm/devel/linux-4.9.45/
+KERNEL_DIR ?= $(ROOT_DIR)/../linux-stable/
 
 OBJECTS_LIB = $(patsubst %.c, %.o, $(wildcard $(LRCU_DIR)/*.c))
 HEADERS_LIB = $(wildcard $(LRCU_DIR)/*.h) $(wildcard $(INCLUDE_DIR)/lrcu/*.h)
@@ -24,10 +24,10 @@ TARGET_EX = $(TARGET_EX1) $(TARGET_EX2)
 
 HEADERS_ALL = $(HEADERS_LIB) $(HEADERS_EX1)
 
-CC = cc
+CC = /usr/bin/gcc
 CFLAGS += -I$(INCLUDE_DIR) -L$(ROOT_DIR)
-CFLAGS +=  --std=gnu99 -g -O3 -Wall -Wextra -Werror
-LDFLAGS += -flto
+CFLAGS += --std=gnu99 -O2 -Wall -Wextra -Werror -g
+LDFLAGS += #-flto
 AR = ar
 ARFLAGS = rcs
 
@@ -70,5 +70,5 @@ clean:
 	-rm -f $(OBJECTS_EX2)
 	-rm -f $(TARGET_EX)
 	cd $(LRCU_DIR)
-	#make -C $(KERNEL_DIR) M=$(LRCU_DIR) CONFIG_LRCU=m clean
-	#make -C $(KERNEL_DIR) M=$(TARGET_EX2_DIR) clean
+	make -C $(KERNEL_DIR) M=$(LRCU_DIR) CONFIG_LRCU=m clean
+	make -C $(KERNEL_DIR) M=$(TARGET_EX2_DIR) clean

@@ -4,11 +4,16 @@
 
 static int __init lrcu_start(void)
 {
-    return 0;
+	if(lrcu_init())
+    	return 0;
+    return -1;
 }
 static void __exit lrcu_cleanup_module(void)
 {
+	lrcu_deinit();
 }
+
+#ifdef CONFIG_LRCU_MODULE
 
 module_init(lrcu_start);
 module_exit(lrcu_cleanup_module);
@@ -19,4 +24,8 @@ MODULE_LICENSE("GPL");
 
 MODULE_DESCRIPTION("LRCU" ", v" DRV_VERSION);
 MODULE_AUTHOR("Andrei Dubasov, andrew.dubasov@gmail.com");
-#endif
+#else /* CONFIG_LRCU_MODULE */
+subsys_initcall(lrcu_start);
+__exitcall(lrcu_cleanup_module);
+#endif /* CONFIG_LRCU_MODULE */
+#endif /* LRCU_LINUX */

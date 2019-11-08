@@ -2,8 +2,8 @@
 #define _LRCU_RANGETREE_CONTAINER_H
 
 #include <lrcu/lrcu.h>
-#include "compiler.h"
-#include "atomics.h"
+#include <lrcu/atomics.h>
+#include <lrcu/compiler.h>
 
 #define BINTREE_SEARCH_SELF_IMPLEMENTED
 

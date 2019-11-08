@@ -2,10 +2,11 @@
 #define _LRCU_INTERNAL_H
 
 #include <lrcu/lrcu.h>
-#include "compiler.h"
-#include "atomics.h"
 #include "spinlock.h"
-#include "list.h"
+
+#include <lrcu/list.h>
+#include <lrcu/atomics.h>
+#include <lrcu/compiler.h>
 
 enum{ /* thread worker states */
     LRCU_WORKER_READY = 0,
@@ -35,15 +36,19 @@ struct lrcu_namespace {
     lrcu_list_head_t threads;
     lrcu_list_head_t hung_threads;
     u8 id;
+
+    lrcu_spinlock_t  list_hlock;
+    lrcu_list_head_t free_hlist, worker_hlist;
+
     lrcu_spinlock_t  list_lock;
     lrcu_list_head_t free_list, worker_list;
     u64 version LRCU_ALIGNED;
 } LRCU_ALIGNED;
 
-struct lrcu_local_namespace {
+typedef struct lrcu_local_namespace {
     u64 version;
     i32 counter; /* max nesting depth 2^32 */
-};
+} lrcu_local_namespace_t;
 
 /* XXX make number of namespaces dynamic??? */
 struct lrcu_thread_info{

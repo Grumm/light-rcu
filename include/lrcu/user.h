@@ -18,6 +18,7 @@
 #define LRCU_THREAD_CREATE(tid, func, data) pthread_create(tid, NULL, func, data)
 #define LRCU_THREAD_JOIN(ptid) pthread_join(*(ptid), NULL)
 typedef pthread_t LRCU_THREAD_T;
+#define LRCU_THREAD_SHOULD_STOP() false
 
 #define LRCU_TLS_DEFINE(t, v) static LRCU_ALIGNED __thread t v
 /* in case of pthread-only tls */
@@ -48,6 +49,7 @@ typedef pthread_t LRCU_THREAD_T;
 		qsort((base), (num), (size), (cmp_func))
 
 #define LRCU_USLEEP(x) usleep(x)
+#define LRCU_YIELD() sched_yield()
 
 #define LRCU_EXPORT_SYMBOL(x)
 

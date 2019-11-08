@@ -2,8 +2,8 @@
 #define _LRCU_SPINLOCK_H
 
 #include <lrcu/lrcu.h>
-#include "compiler.h"
-#include "atomics.h"
+#include <lrcu/atomics.h>
+#include <lrcu/compiler.h>
 
 #define LRCU_SPINLOCK_INITIALIZER {0, 0};
 

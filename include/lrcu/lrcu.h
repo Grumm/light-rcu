@@ -34,6 +34,13 @@ struct lrcu_ptr {
     u8 ns_id;
 };
 
+typedef struct lrcu_ptr_head {
+    lrcu_list_t list;
+    lrcu_destructor_t *func;
+    u64 version;
+    u8 ns_id; //?
+} lrcu_ptr_head_t;
+
 
 /***********************************************************/
 
@@ -61,7 +68,7 @@ void lrcu_read_lock_ns(u8 ns_id);
 
 /***********************************************************/
 
-#define lrcu_dereference(p) __lrcu_dereference(&(p))
+#define lrcu_dereference(p) __lrcu_dereference((void **)&(p))
 
 void *__lrcu_dereference(void **p);
 
@@ -69,9 +76,9 @@ void *lrcu_dereference_ptr(struct lrcu_ptr *ptr);
 
 /***********************************************************/
 
-#define lrcu_assign_pointer(p, v) __lrcu_assign_pointer_ns(LRCU_NS_DEFAULT, &(p), (v))
+#define lrcu_assign_pointer(p, v) __lrcu_assign_pointer_ns(LRCU_NS_DEFAULT, (void **)&(p), (v))
 
-#define lrcu_assign_pointer_ns(ns, p, v) __lrcu_assign_pointer_ns((ns), &(p), (v))
+#define lrcu_assign_pointer_ns(ns, p, v) __lrcu_assign_pointer_ns((ns), (void **)&(p), (v))
 
 void __lrcu_assign_pointer_ns(u8 ns_id, void **pp, void *newptr);
 
@@ -102,13 +109,21 @@ void lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr);
 
 /***********************************************************/
 
+#define lrcu_call_head(ptr, func) \
+        lrcu_call_head_ns(LRCU_NS_DEFAULT, (ptr), (func))
+
+void lrcu_call_head_ns(u8 ns_id, struct lrcu_ptr_head *head,
+                                    lrcu_destructor_t *destr);
+
+/***********************************************************/
+
 #define lrcu_synchronize() lrcu_synchronize_ns(LRCU_NS_DEFAULT)
 
 void lrcu_synchronize_ns(u8 ns_id);
 
 /***********************************************************/
 
-#define lrcu_barrier() lrcu_synchronize_ns(LRCU_NS_DEFAULT)
+#define lrcu_barrier() lrcu_barrier_ns(LRCU_NS_DEFAULT)
 
 void lrcu_barrier_ns(u8 ns_id);
 

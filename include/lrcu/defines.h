@@ -7,17 +7,17 @@ enum{
     LRCU_NS_MAX, /* but no more than 255 */
 };
 
-#define LRCU_THREADS_MAX 8
+#define LRCU_THREADS_MAX 128
 
 /* time between worker cycles */
-#define LRCU_WORKER_SLEEP_US    50000
+#define LRCU_WORKER_SLEEP_US    50
 /* time between synchronize waiting loop */
-#define LRCU_NS_SYNC_SLEEP_US   10000
+#define LRCU_NS_SYNC_SLEEP_US   100
 /* hang detection mechanism to prevent complete malfunction */
-#define LRCU_HANG_TIMEOUT_S     60
+#define LRCU_HANG_TIMEOUT_S     600
 
 //#define LRCU_LIST_ATOMIC
-//#define LRCU_LIST_DEBUG
+#define LRCU_LIST_DEBUG
 
 /***********************************************************/
 /* OS api abstraction layer */
@@ -35,5 +35,8 @@ enum{
 #else
 #include "user.h"
 #endif
+
+#include "compiler.h"
+#include "list.h"
 
 #endif /* __LRCU_USER_DEFINES_H__ */

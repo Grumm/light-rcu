@@ -12,56 +12,50 @@ LRCU_TLS_DEFINE(struct lrcu_thread_info *, __lrcu_thread_info);
 
 /***********************************************************/
 
-static inline void __lrcu_write_barrier(struct lrcu_namespace *ns){
-    ns->version++; /* new ptr's should be seen only with new version */
-}
-
 void lrcu_write_barrier_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
 
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(ti->h->ns[ns_id]);
+    LRCU_ASSERT(h);
 
-    __lrcu_write_barrier(ti->h->ns[ns_id]);
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
+    ns->version++; /* new ptr's should be seen only with new version */
 }
 LRCU_EXPORT_SYMBOL(lrcu_write_barrier_ns);
 
 /***********************************************************/
 
-static inline void __lrcu_write_lock(struct lrcu_namespace *ns){
+void lrcu_write_lock_ns(u8 ns_id){
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
+
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
     lrcu_spin_lock(&ns->write_lock);
     ns->version++;
     wmb();
-}
-
-void lrcu_write_lock_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(ti->h->ns[ns_id]);
-
-    __lrcu_write_lock(ti->h->ns[ns_id]);
 }
 LRCU_EXPORT_SYMBOL(lrcu_write_lock_ns);
 
 /***********************************************************/
 
-static inline void __lrcu_write_unlock(struct lrcu_namespace *ns){
+void lrcu_write_unlock_ns(u8 ns_id){
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
+
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
     //wmb();
     //ns->version++;
     lrcu_spin_unlock(&ns->write_lock);
-}
-
-void lrcu_write_unlock_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(ti->h->ns[ns_id]);
-
-    __lrcu_write_unlock(ti->h->ns[ns_id]);
 }
 LRCU_EXPORT_SYMBOL(lrcu_write_unlock_ns);
 
@@ -106,41 +100,56 @@ LRCU_EXPORT_SYMBOL(__lrcu_assign_ptr);
 
 /***********************************************************/
 
-static inline void __lrcu_read_lock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
-    LRCU_GET_LNS(ti, ns)->counter++; /* can be nested! */
+void lrcu_read_lock_ns(u8 ns_id){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    lrcu_local_namespace_t * lns;
+    struct lrcu_namespace *ns;
+
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
+    LRCU_ASSERT(ti);
+    lns = LRCU_GET_LNS_ID(ti, ns_id);
+
+    lns->counter++; /* can be nested! */
     barrier(); /* make sure counter changed first, and only after 
                             that version. see worker thread read order */
     /* only first entrance in read section matters */
-    if(likely(LRCU_GET_LNS(ti, ns)->counter == 1)){
-        LRCU_GET_LNS(ti, ns)->version = ns->version;
+    if(likely(lns->counter == 1)){
+        lns->version = ns->version;
         /* say we entered read section with this ns version */
         /* barrier for worker thread to see new version */
         wmb();
     }
 }
-
-void lrcu_read_lock_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(ti->h->ns[ns_id]);
-
-    __lrcu_read_lock(ti, ti->h->ns[ns_id]);
-}
 LRCU_EXPORT_SYMBOL(lrcu_read_lock_ns);
 
 /***********************************************************/
 
-static inline void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_namespace *ns){
+void lrcu_read_unlock_ns(u8 ns_id){
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_namespace *ns;
+    lrcu_local_namespace_t * lns;
 
-    if(LRCU_GET_LNS(ti, ns)->counter != 1){
-        LRCU_GET_LNS(ti, ns)->counter--;
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
+    LRCU_ASSERT(ti);
+    lns = LRCU_GET_LNS_ID(ti, ns_id);
+
+    if(lns->counter != 1){
+        lns->counter--;
     }else{
         /* between protected data access and actual destruction of the object */
         barrier();
-        LRCU_GET_LNS(ti, ns)->counter--;
-        if(LRCU_GET_LNS(ti, ns)->version != ns->version){
+        lns->counter--;
+        if(lns->version != ns->version){
             /* 
             XXX notify thread that called synchronize() that we are done.
             In current implementation I see this can be omitted since 
@@ -150,17 +159,7 @@ static inline void __lrcu_read_unlock(struct lrcu_thread_info *ti, struct lrcu_n
         }
         barrier();
     }
-    LRCU_ASSERT(LRCU_GET_LNS(ti, ns)->counter >= 0);
-}
-
-void lrcu_read_unlock_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(ti->h->ns[ns_id]);
-
-    __lrcu_read_unlock(ti, ti->h->ns[ns_id]);
+    LRCU_ASSERT(lns->counter >= 0);
 }
 LRCU_EXPORT_SYMBOL(lrcu_read_unlock_ns);
 
@@ -184,13 +183,17 @@ LRCU_EXPORT_SYMBOL(lrcu_dereference_ptr);
 
 /***********************************************************/
 
-static inline void __lrcu_call(struct lrcu_namespace *ns, 
-                            void *p, lrcu_destructor_t *destr){
+void lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr){
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
     struct lrcu_ptr local_ptr = {
         .deinit = destr,
         .ptr = p,
     };
 
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
     LRCU_ASSERT(ns);
 
     local_ptr.version = ns->version, /* synchronize() will be called on this version */
@@ -208,16 +211,33 @@ static inline void __lrcu_call(struct lrcu_namespace *ns,
 #endif
     /* XXX wakeup thread. see lrcu_read_unlock */
 }
+LRCU_EXPORT_SYMBOL(lrcu_call_ns);
 
-void lrcu_call_ns(u8 ns_id, void *p, lrcu_destructor_t *destr){
+/***********************************************************/
+
+void lrcu_call_head_ns(u8 ns_id, struct lrcu_ptr_head *head,
+                                    lrcu_destructor_t *destr){
     struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
 
     LRCU_ASSERT(h);
-    LRCU_ASSERT(h->ns[ns_id]);
 
-    __lrcu_call(h->ns[ns_id], p, destr);
+    ns = h->ns[ns_id];
+    LRCU_ASSERT(ns);
+
+    head->func = destr;
+    head->ns_id = ns_id;
+    head->version = ns->version;
+
+#ifdef LRCU_LIST_ATOMIC
+    lrcu_list_insert_atomic(&ns->free_hlist, &head->list);
+#else
+    lrcu_spin_lock(&ns->list_hlock);
+    lrcu_list_insert(&ns->free_hlist, &head->list);
+    lrcu_spin_unlock(&ns->list_hlock);
+#endif
 }
-LRCU_EXPORT_SYMBOL(lrcu_call_ns);
+LRCU_EXPORT_SYMBOL(lrcu_call_head_ns);
 
 /***********************************************************/
 
@@ -424,7 +444,7 @@ static inline void *lrcu_worker(void *arg){
     /* let initializing thread see that we changed state */
     wmb();
 
-    while(h->worker_state != LRCU_WORKER_STOP){
+    while(h->worker_state != LRCU_WORKER_STOP && !LRCU_THREAD_SHOULD_STOP()){
         size_t i;
 
         for(i = 0; i < LRCU_NS_MAX; i++){
@@ -442,10 +462,23 @@ static inline void *lrcu_worker(void *arg){
                 lrcu_spin_unlock(&ns->list_lock);
 #endif
             }
-            if(!lrcu_list_empty(&ns->worker_list)){
+            if(!lrcu_list_empty(&ns->free_hlist)){
+                //LRCU_LOG("free_hlist not empty\n");
+
+#ifdef LRCU_LIST_ATOMIC
+                lrcu_list_splice_atomic(&ns->worker_hlist, &ns->free_hlist);
+#else
+                lrcu_spin_lock(&ns->list_hlock);
+                lrcu_list_splice(&ns->worker_hlist, &ns->free_hlist);
+                lrcu_spin_unlock(&ns->list_hlock);
+#endif
+            }
+            if(!lrcu_list_empty(&ns->worker_list) ||
+                        !lrcu_list_empty(&ns->worker_hlist)){
                 struct lrcu_ptr *ptr;
                 lrcu_list_t *n, *n_prev;
                 lrcu_rangetree_t rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
+                //LRCU_LOG("worker not empty\n");
 
                 __lrcu_get_synchronized(ns, &rbt);
 
@@ -458,10 +491,22 @@ static inline void *lrcu_worker(void *arg){
                         LRCU_FREE(n);
                     }
                 }
+////////////////TODO
+                lrcu_list_for_each(n, n_prev, &ns->worker_hlist){
+                    struct lrcu_ptr_head *h = container_of(n, struct lrcu_ptr_head, list);
+                    /* do actual job */
+                    //LRCU_LOG("for each worker_hlist %"PRIu64"\n", h->version);
+                    if(!lrcu_rangetree_find(&rbt, h->version)){
+                        lrcu_list_unlink_next(&ns->worker_hlist, n_prev);
+                        h->func(h);
+                    }
+                }
                 /* barrier for processed version write */
                 wmb();
                 /* every callback up to min_version has been called. release lrcu_barrier */
                 ns->processed_version = lrcu_rangetree_getmin(&rbt);
+                if(ns->processed_version == 0)
+                    ns->processed_version = ns->version + 1;
             }
             /* make sure we see both ns[] and worker_ns[] */
             rmb();
@@ -478,11 +523,13 @@ static inline void *lrcu_worker(void *arg){
                 that section of code, e.g. (thread_info->lns[i].version >= ns->version)
             */
             if(unlikely(lrcu_list_empty(&ns->worker_list)
+                                && lrcu_list_empty(&ns->worker_hlist)
                                 && h->worker_ns[i] != h->ns[i])){
                 lrcu_spin_lock(&h->ns_lock);
                 /* check again under spinlock */
                 if(likely(h->worker_ns[i] != h->ns[i]
                         && lrcu_list_empty(&ns->free_list)
+                        && lrcu_list_empty(&ns->free_hlist)
                         && lrcu_ns_destructor(h->worker_ns[i], false))){
                     h->worker_ns[i] = NULL;
                     lrcu_spin_unlock(&h->ns_lock);
@@ -490,9 +537,11 @@ static inline void *lrcu_worker(void *arg){
                 }
                 lrcu_spin_unlock(&h->ns_lock);
             }
-            if(!lrcu_list_empty(&ns->worker_list)){
-                __lrcu_write_barrier(ns); /* bump version so that threads do not hang */
-            }
+
+            lrcu_write_barrier_ns(i); /* bump version so that threads do not hang */
+            if(lrcu_list_empty(&ns->worker_list) &&
+                        lrcu_list_empty(&ns->worker_hlist))
+                ns->processed_version = ns->version;
         }
         LRCU_USLEEP(h->worker_timeout);
     }
@@ -503,14 +552,24 @@ static inline void *lrcu_worker(void *arg){
 
 /***********************************************************/
 
-static inline void __lrcu_synchronize(struct lrcu_namespace *ns){
+void lrcu_synchronize_ns(u8 ns_id){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
     lrcu_range_t ranges[LRCU_THREADS_MAX];
     u64 current_version;
 
+    if(ti && LRCU_GET_LNS_ID(ti, ns_id))
+        LRCU_ASSERT(LRCU_GET_LNS_ID(ti, ns_id)->counter == 0);
+
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
     LRCU_ASSERT(ns);
 
     current_version = ns->version;
     rmb();
+    /* XXX not infinite loop */
     while(1){
         lrcu_rangetree_t rbt = RANGE_BINTREE_INIT(ranges, LRCU_THREADS_MAX);
 
@@ -521,26 +580,28 @@ static inline void __lrcu_synchronize(struct lrcu_namespace *ns){
         LRCU_USLEEP(ns->sync_timeout);
     }
 }
-
-void lrcu_synchronize_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(LRCU_GET_LNS_ID(ti, ns_id)->counter == 0);
-
-    __lrcu_synchronize(ti->h->ns[ns_id]);
-}
 LRCU_EXPORT_SYMBOL(lrcu_synchronize_ns);
 
 /***********************************************************/
 
-static inline void __lrcu_barrier(struct lrcu_namespace *ns){
+void lrcu_barrier_ns(u8 ns_id){
+    struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
+    struct lrcu_namespace *ns;
     u64 current_version;
 
+    lrcu_synchronize_ns(ns_id);
+
+    if(ti && LRCU_GET_LNS_ID(ti, ns_id))
+        LRCU_ASSERT(LRCU_GET_LNS_ID(ti, ns_id)->counter == 0);
+
+    LRCU_ASSERT(h);
+
+    ns = h->ns[ns_id];
     LRCU_ASSERT(ns);
 
     current_version = ns->version;
+    /* XXX not infinite loop */
     while(1){
         /* barrier for processed version read */
         rmb();
@@ -548,16 +609,6 @@ static inline void __lrcu_barrier(struct lrcu_namespace *ns){
             break;
         LRCU_USLEEP(ns->sync_timeout);
     }
-}
-
-void lrcu_barrier_ns(u8 ns_id){
-    struct lrcu_thread_info *ti = LRCU_GET_TI();
-
-    LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
-    LRCU_ASSERT(LRCU_GET_LNS_ID(ti, ns_id)->counter == 0);
-
-    __lrcu_barrier(ti->h->ns[ns_id]);
 }
 LRCU_EXPORT_SYMBOL(lrcu_barrier_ns);
 
@@ -621,10 +672,12 @@ void lrcu_deinit(void){
 
     LRCU_ASSERT(h);
 
+    /* unsafe */
+    //lrcu_ns_deinit(LRCU_NS_DEFAULT); TODO
+
     h->worker_state = LRCU_WORKER_STOP;
-    LRCU_LOG("thread_join before\n");
+
     LRCU_THREAD_JOIN(&h->worker_tid);
-    LRCU_LOG("thread_join after\n");
     LRCU_DEL_HANDLER();
 
     LRCU_TLS_DEINIT(__lrcu_thread_info);
@@ -672,6 +725,7 @@ struct lrcu_namespace *lrcu_ns_init(u8 id){
         goto out;
 
     ns->id = id;
+    ns->version = 1;
     ns->sync_timeout = LRCU_NS_SYNC_SLEEP_US;
     /* no need to take a lock */
     if (lrcu_list_add(&ns->threads, h->worker_ti) == NULL){
@@ -766,21 +820,22 @@ LRCU_EXPORT_SYMBOL(__lrcu_thread_init);
 
 bool lrcu_thread_set_ns(u8 ns_id){
     struct lrcu_thread_info *ti = LRCU_GET_TI();
+    struct lrcu_handler *h = LRCU_GET_HANDLER();
     struct lrcu_namespace *ns;
     void *ret;
 
+    LRCU_ASSERT(h);
     LRCU_ASSERT(ti);
-    LRCU_ASSERT(ti->h);
 
-    lrcu_spin_lock(&ti->h->ns_lock);
-    ns = ti->h->ns[ns_id];
+    lrcu_spin_lock(&h->ns_lock);
+    ns = h->ns[ns_id];
     LRCU_ASSERT(ns);
+    lrcu_spin_unlock(&h->ns_lock);
 
     /* locking in spinlock. careful of deadlock */
     lrcu_spin_lock(&ns->threads_lock);
     ret = lrcu_list_add(&ns->threads, ti);
     lrcu_spin_unlock(&ns->threads_lock);
-    lrcu_spin_unlock(&ti->h->ns_lock);
 
     return ret != NULL;
 }
@@ -860,7 +915,8 @@ void lrcu_thread_deinit(void){
 
     LRCU_ASSERT(ti);
 
-    thread_destructor_callback(ti);
+    if(ti)
+        thread_destructor_callback(ti);
     LRCU_DEL_TI(ti);
 }
 LRCU_EXPORT_SYMBOL(lrcu_thread_deinit);

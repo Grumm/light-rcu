@@ -92,9 +92,10 @@ void *writer(void *arg){
     while(shptr->flag){
         lrcu_write_lock();
         struct shared_data *data = shptr->ptr;
+        void *t = shared_data_constructor(shptr, data);
+        /* still need lrcu_assign_pointer() even if we are under lock */
+        lrcu_assign_pointer(shptr->ptr, t);
 
-        /* no need for lrcu_assign_pointer() since we are under lock */
-        shptr->ptr = shared_data_constructor(shptr, data);
         processed++;
         lrcu_write_unlock();
         if(shptr->writer_timer)

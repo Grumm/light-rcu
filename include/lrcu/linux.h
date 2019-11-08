@@ -37,15 +37,34 @@ int __lrcu_kthread_wrapper_func(void *data){ \
 EXPORT_SYMBOL(__lrcu_kthread_wrapper_func);
 
 #define LRCU_THREAD_CREATE(tid, f, d) ({ \
-				struct lrcu_ts_compl_data *__tcd = (tid); \
-				init_completion(&__tcd->compl); \
-				__tcd->data = (d); \
-				__tcd->func = (f); \
-				__tcd->th = kthread_run(__lrcu_kthread_wrapper_func, __tcd, "lrcu_worker"); \
-				false; \
+				struct lrcu_ts_compl_data **__ptcd = (tid); \
+				struct lrcu_ts_compl_data *__tcd; \
+				int ret = true; \
+				__tcd = *__ptcd = LRCU_CALLOC(1, sizeof(struct lrcu_ts_compl_data)); \
+				if(__tcd){ \
+					init_completion(&__tcd->compl); \
+					__tcd->data = (d); \
+					__tcd->func = (f); \
+					__tcd->th = kthread_create(__lrcu_kthread_wrapper_func, __tcd, "lrcu_worker"); \
+					if(!IS_ERR(__tcd->th)){ \
+						const struct sched_param param = { .sched_priority = 20 }; \
+						sched_setscheduler_nocheck(__tcd->th, SCHED_NORMAL, &param); \
+						wake_up_process(__tcd->th); \
+						ret = false; \
+					}else{ \
+						LRCU_FREE(__tcd); \
+						*__ptcd = NULL; \
+					} \
+				} \
+				ret; \
 			})
-#define LRCU_THREAD_JOIN(tid) wait_for_completion(&(tid)->compl)
-typedef struct lrcu_ts_compl_data LRCU_THREAD_T;
+
+#define LRCU_THREAD_JOIN(tid) ({ \
+		if(wait_for_completion_interruptible(&(*(tid))->compl) != -ERESTARTSYS) \
+			LRCU_FREE(*(tid)); \
+	})
+typedef struct lrcu_ts_compl_data *LRCU_THREAD_T;
+#define LRCU_THREAD_SHOULD_STOP() kthread_should_stop()
 
 #define LRCU_TLS_INIT(x)
 #define LRCU_TLS_DEINIT(x)
@@ -64,12 +83,15 @@ typedef struct lrcu_ts_compl_data LRCU_THREAD_T;
 #include <linux/delay.h>
 #include <linux/vmalloc.h>
 
-//#define LRCU_CALLOC(a, b) kzalloc((a) * (b), GFP_ATOMIC)
-//#define LRCU_MALLOC(a) kmalloc(a, GFP_ATOMIC)
-//#define LRCU_FREE(a) kfree(a)
+#if 0
+#define LRCU_CALLOC(a, b) kzalloc((a) * (b), GFP_ATOMIC)
+#define LRCU_MALLOC(a) kmalloc(a, GFP_ATOMIC)
+#define LRCU_FREE(a) kfree(a)
+#else
 #define LRCU_CALLOC(a, b) kzalloc((a) * (b), GFP_KERNEL)
 #define LRCU_MALLOC(a) kmalloc(a, GFP_KERNEL)
 #define LRCU_FREE(a) kfree(a)
+#endif
 //#define LRCU_CALLOC(a, b) vzalloc((a) * (b))
 //#define LRCU_MALLOC(a) vmalloc(a)
 //#define LRCU_FREE(a) vfree(a)
@@ -79,6 +101,7 @@ typedef struct lrcu_ts_compl_data LRCU_THREAD_T;
 		sort((base), (num), (size), (cmp_func), NULL)
 
 #define LRCU_USLEEP(x) usleep_range((x), (x))
+#define LRCU_YIELD() schedule()
 
 #include <linux/module.h>
 
